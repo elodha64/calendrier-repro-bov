@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7b3f61">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Repro Bovine v1.4</title>
+  <link rel="manifest" href="manifest.webmanifest?v=140">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=140">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=140">
+  <link rel="stylesheet" href="styles.css?v=140">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand"><img src="icon-192.png?v=140" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.4</span></div>
+      <div id="todayLabel" class="muted small"></div>
+      <div id="cloudBadge" class="cloud-badge">☁️ Connexion…</div>
+    </div>
+    <button id="quickAddBtn" class="primary compact">＋ Événement</button>
+  </header>
+
+  <main id="app">
+    <section id="view-home" class="view active">
+      <div class="hero-grid">
+        <button class="metric urgent" data-filter="today"><strong id="countToday">0</strong><span>À surveiller aujourd’hui</span></button>
+        <button class="metric" data-filter="week"><strong id="countWeek">0</strong><span>Dans les 7 jours</span></button>
+        <button class="metric"><strong id="countPregnant">0</strong><span>Pleines / supposées</span></button>
+      </div>
+      <div class="section-head"><h2>Priorités du jour</h2><button id="notifyBtn" class="ghost smallbtn">🔔 Notifications</button></div>
+      <div id="todayAlerts" class="cards"></div>
+      <div class="section-head"><h2>Prochainement</h2><span class="muted">7 jours</span></div>
+      <div id="weekAlerts" class="cards"></div>
+    </section>
+
+    <section id="view-calendar" class="view">
+      <div class="segmented" id="calendarMode"><button data-mode="day">Jour</button><button data-mode="week" class="active">Semaine</button><button data-mode="month">Mois</button></div>
+      <div class="calendar-nav"><button id="calPrev" class="ghost">‹</button><strong id="calTitle"></strong><button id="calNext" class="ghost">›</button></div>
+      <div id="calendarContent"></div>
+    </section>
+
+    <section id="view-cows" class="view">
+      <div class="section-head"><div class="searchbox cow-search-main"><span>🔎</span><input id="cowSearch" placeholder="Nom ou numéro de travail" autocomplete="off"></div><button id="addCowBtn" class="primary compact">＋ Vache</button></div>
+      <div class="chips"><button class="chip active" data-cow-filter="all">Toutes</button><button class="chip" data-cow-filter="pregnant">Pleines</button><button class="chip" data-cow-filter="watch">À surveiller</button><button class="chip" data-cow-filter="postpartum">Post-vêlage</button><button class="chip" data-cow-filter="underage">Hors âge</button><button class="chip" data-cow-filter="excluded">Exclues</button><button class="chip" data-cow-filter="inactive">Sorties</button></div>
+      <div id="cowList" class="cards"></div>
+    </section>
+
+    <section id="view-bulls" class="view">
+      <div class="section-head"><h2>Taureaux</h2><button id="addBullBtn" class="primary compact">＋ Ajouter</button></div>
+      <p class="muted">Active les mâles réellement utilisés comme reproducteurs. Ils seront proposés lors d’une saillie naturelle.</p>
+      <div id="bullList" class="cards"></div>
+      <h3>Taureaux d’IA mémorisés</h3>
+      <div id="aiBullList" class="tags"></div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2>Paramètres des alertes</h2>
+      <p class="muted">Toutes les échéances peuvent être adaptées.</p>
+      <div id="settingsForm" class="settings-grid"></div>
+      <h2>Suivi du troupeau</h2>
+      <div id="herdSettings"></div>
+      <h2>Notifications</h2>
+      <div id="notificationSettings"></div>
+      <div class="settings-actions">
+        <button id="saveSettingsBtn" class="primary">Enregistrer</button>
+        <button id="resetSettingsBtn" class="ghost">Valeurs par défaut</button>
+      </div>
+      <hr>
+      <h2>Cloud partagé</h2>
+      <div class="cloud-panel card">
+        <div><strong>Compte connecté</strong><div id="cloudUserEmail" class="muted small">Non connecté</div></div>
+        <div class="cloud-actions"><button type="button" id="cloudSyncBtn" class="primary compact">☁️ Synchroniser maintenant</button><button type="button" id="cloudLogoutBtn" class="ghost compact">Se déconnecter</button></div>
+        <div id="cloudStatusText" class="muted small">Connexion en cours…</div>
+        <div class="muted small">Les saisies restent enregistrées sur l’appareil et sont synchronisées avec votre troupeau partagé dès que le réseau est disponible.</div>
+      </div>
+      <hr>
+      <h2>Données</h2>
+      <div class="cards">
+        <label class="card action-card"><strong>Importer un CSV troupeau</strong><span>Réimporte les animaux présents et recalcule les vêlages historiques.</span><input id="csvInput" type="file" accept=".csv,text/csv" hidden></label>
+        <button id="exportBtn" class="card action-card"><strong>Exporter une sauvegarde</strong><span>Vaches, événements, taureaux et réglages au format JSON.</span></button>
+        <label class="card action-card"><strong>Restaurer une sauvegarde</strong><span>Réimporte un fichier JSON précédemment exporté.</span><input id="restoreInput" type="file" accept=".json,application/json" hidden></label>
+      </div>
+      <p id="dataInfo" class="muted small"></p>
+    </section>
+  </main>
+
+  <nav class="bottomnav">
+    <button data-view="home" class="active"><span>🏠</span><small>Aujourd’hui</small></button>
+    <button data-view="calendar"><span>📅</span><small>Calendrier</small></button>
+    <button data-view="cows"><span>🐄</span><small>Vaches</small></button>
+    <button data-view="bulls"><span>🐂</span><small>Taureaux</small></button>
+    <button data-view="settings"><span>⚙️</span><small>Réglages</small></button>
+  </nav>
+
+  <dialog id="authDialog" class="auth-dialog">
+    <form id="authForm">
+      <div class="auth-logo"><img src="icon-192.png?v=140" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
+      <p class="muted">Connecte-toi avec ton adresse email et ton mot de passe Supabase.</p>
+      <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
+      <label>Mot de passe<input id="authPassword" type="password" autocomplete="current-password" required></label>
+      <button class="primary wide" type="submit">Se connecter</button>
+      <button class="ghost wide" id="recoverBtn" type="button">Mot de passe oublié</button>
+      <p id="authError" class="auth-error small"></p>
+      <p class="muted small">Une fois connecté, l’application fonctionne aussi hors connexion et resynchronise les saisies au retour du réseau.</p>
+    </form>
+  </dialog>
+
+  <dialog id="eventDialog">
+    <form id="eventForm">
+      <div class="dialog-head"><h2 id="eventDialogTitle">Ajouter un événement</h2><button type="button" id="cancelEventTop" class="iconbtn" aria-label="Fermer">✕</button></div>
+      <input type="hidden" id="eventEditId">
+      <label>Vache<div class="searchbox"><span>🔎</span><input id="eventCowSearch" placeholder="Nom ou n° travail" autocomplete="off"></div></label>
+      <div id="eventCowMatches" class="match-list"></div>
+      <input type="hidden" id="eventCowId">
+      <div id="selectedCow" class="selected-cow hidden"></div>
+      <label>Événement<select id="eventType" required>
+        <option value="service">IA / saillie</option>
+        <option value="heat">Chaleur observée</option>
+        <option value="pregnant">Gestante confirmée</option>
+        <option value="not_pregnant">Diagnostic négatif</option>
+        <option value="calving">Vêlage</option>
+      </select></label>
+      <label>Date<input id="eventDate" type="date" required></label>
+      <div id="serviceFields" class="field-group">
+        <label>Mode<select id="serviceMode"><option value="natural">Saillie naturelle</option><option value="ai">Insémination artificielle</option></select></label>
+        <label id="naturalBullWrap">Taureau<select id="naturalBull"></select></label>
+        <label id="aiBullWrap" class="hidden">Taureau utilisé<input id="aiBull" placeholder="Nom ou numéro du taureau"></label>
+      </div>
+      <label>Note (facultatif)<textarea id="eventNote" rows="2" placeholder="Observation…"></textarea></label>
+      <div class="dialog-actions"><button type="submit" class="primary">Enregistrer</button><button type="button" id="cancelEventBottom" class="ghost">Annuler</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="cowDialog"><div id="cowDetail"></div></dialog>
+  <dialog id="cowFormDialog"><form method="dialog" id="cowForm"><div class="dialog-head"><h2 id="cowFormTitle">Ajouter une vache</h2><button value="cancel" class="iconbtn">✕</button></div>
+    <input type="hidden" id="cowEditId">
+    <label>Numéro de travail *<input id="cowWorkNumber" required autocomplete="off"></label>
+    <label>Nom<input id="cowName" autocomplete="off"></label>
+    <label>Numéro national / identifiant<input id="cowNationalId" autocomplete="off"></label>
+    <label>Date de naissance<input id="cowBirthDate" type="date"></label>
+    <label>Race<input id="cowBreed" placeholder="Ex. Blonde d’Aquitaine"></label>
+    <label>Date du dernier vêlage<input id="cowLastCalving" type="date"></label>
+    <label>Rang de vêlage<input id="cowCalvingCount" type="number" min="0" step="1"></label>
+    <label class="check-card"><input id="cowForceRepro" type="checkbox"> <span><strong>Inclure dans le suivi repro même si elle est hors âge</strong><small>Utile pour une femelle mise à la reproduction plus tôt que le seuil général.</small></span></label>
+    <button class="primary wide" type="submit">Enregistrer</button>
+  </form></dialog>
+  <dialog id="bullDialog"><form id="bullForm"><div class="dialog-head"><h2 id="bullDialogTitle">Ajouter un taureau</h2><button type="button" id="cancelBullTop" class="iconbtn">✕</button></div><input type="hidden" id="bullEditId"><label>Nom<input id="bullName" required></label><label>Numéro<input id="bullNumber"></label><div class="dialog-actions"><button class="primary" type="submit" id="saveBullBtn">Ajouter</button><button class="ghost" type="button" id="cancelBullBottom">Annuler</button></div></form></dialog>
+
+  <script src="initial-data.js?v=140"></script>
+  <script src="app.js?v=140"></script>
+</body>
+</html>
