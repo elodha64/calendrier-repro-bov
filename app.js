@@ -6,8 +6,9 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 let calendarFilters=(()=>{try{return {...{heat:true,gestation:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-calendar-filters')||'{}')}}catch(e){return {heat:true,gestation:true,postpartum:false}}})();
+let homeFilters=(()=>{try{return {...{heat:true,gestation:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-home-filters')||'{}')}}catch(e){return {heat:true,gestation:true,postpartum:false}}})();
 
-// --- Repro Bovine v1.4.9 : Supabase + tri vêlage + filtres calendrier ---
+// --- Repro Bovine v1.5.1 : Supabase + priorité chronologique + filtres calendrier ---
 const SUPABASE_URL='https://uuyiazyofyyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -381,10 +382,12 @@ function calendarAlertGroup(a){
   return 'heat';
 }
 function calendarAlertsForDay(day){return alertsForDay(day).filter(a=>calendarFilters[calendarAlertGroup(a)]!==false)}
+function homeAlertsForDay(day){return alertsForDay(day).filter(a=>homeFilters[calendarAlertGroup(a)]!==false)}
+function homeAlertsBetween(start,end){return alertsBetween(start,end).filter(a=>homeFilters[calendarAlertGroup(a)]!==false)}
 
 function renderHome(){
   const now=dateISO(today()), weekEnd=dateISO(addDays(today(),7));
-  const td=alertsForDay(now), wk=alertsBetween(dateISO(addDays(today(),1)),weekEnd);
+  const td=homeAlertsForDay(now), wk=homeAlertsBetween(dateISO(addDays(today(),1)),weekEnd);
   $('#countToday').textContent=td.length; $('#countWeek').textContent=wk.length;
   $('#countPregnant').textContent=state.cows.filter(c=>isReproEligible(c)&&['pregnant','presumed'].includes(reproductiveStatus(c).key)).length;
   $('#todayAlerts').innerHTML=td.length?td.map(alertHTML).join(''):`<div class="empty">✅ Rien de particulier à surveiller aujourd’hui.</div>`;
@@ -403,16 +406,46 @@ function renderCows(){
   if(cowFilter==='pregnant')list=list.filter(c=>['pregnant','presumed'].includes(reproductiveStatus(c).key));
   if(cowFilter==='watch')list=list.filter(c=>['watch'].includes(reproductiveStatus(c).key)||alertsForDay(dateISO(today())).some(a=>a.cow.id===c.id));
   if(cowFilter==='postpartum')list=list.filter(c=>reproductiveStatus(c).key==='postpartum');
-  const sortMode=$('#cowSort')?.value||'calving';
+  const sortMode=$('#cowSort')?.value||'priority';
+  const allAlerts=buildAlerts(), now=dateISO(today());
+  const priorityFor=c=>{
+    const aa=allAlerts.filter(a=>a.cow.id===c.id);
+    const active=aa.filter(a=>activeOn(a,now)).sort((x,y)=>x.date.localeCompare(y.date));
+    if(active.length)return {group:0,date:active[0].date,label:active[0].title};
+    const future=aa.filter(a=>(a.endDate||a.date)>=now && a.date>now).sort((x,y)=>x.date.localeCompare(y.date));
+    if(future.length)return {group:1,date:future[0].date,label:future[0].title};
+    const nc=nextCalvingDate(c);
+    if(nc)return {group:2,date:nc,label:'Mise bas présumée'};
+    const lc=lastCalving(c);
+    if(lc)return {group:3,date:lc,label:'Dernier vêlage'};
+    return {group:4,date:'9999-12-31',label:'Sans échéance'};
+  };
+  const prio=new Map(list.map(c=>[c.id,priorityFor(c)]));
   list.sort((a,b)=>{
     if(sortMode==='name')return (a.name||'').localeCompare(b.name||'','fr',{sensitivity:'base'})||(a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
     if(sortMode==='work')return (a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
-    const da=nextCalvingDate(a), db=nextCalvingDate(b);
-    if(da&&db)return da.localeCompare(db)||(a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
-    if(da)return -1; if(db)return 1;
+    if(sortMode==='lastcalving'){
+      const da=lastCalving(a), db=lastCalving(b);
+      if(da&&db)return da.localeCompare(db)||(a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
+      if(da)return -1; if(db)return 1;
+      return (a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
+    }
+    if(sortMode==='calving'){
+      const da=nextCalvingDate(a), db=nextCalvingDate(b);
+      if(da&&db)return da.localeCompare(db)||(a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
+      if(da)return -1; if(db)return 1;
+      return (a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
+    }
+    const pa=prio.get(a.id), pb=prio.get(b.id);
+    if(pa.group!==pb.group)return pa.group-pb.group;
+    if(pa.group===3){ // post-vêlage / dernier vêlage : les plus anciennes d'abord
+      const la=lastCalving(a)||'9999-12-31', lb=lastCalving(b)||'9999-12-31';
+      if(la!==lb)return la.localeCompare(lb);
+    }
+    if(pa.date!==pb.date)return pa.date.localeCompare(pb.date);
     return (a.workNumber||'').localeCompare(b.workNumber||'',undefined,{numeric:true});
   });
-  $('#cowList').innerHTML=list.length?list.map(c=>{const s=reproductiveStatus(c), lc=lastCalving(c), nc=nextCalvingDate(c); const under=isUnderAge(c)&&c.reproOverride!=='include'; const excluded=c.reproOverride==='exclude'; const badge=c.active===false?'Sortie':under?'Hors âge':excluded?'Exclue du suivi':s.label; const cls=c.active===false||under||excluded?'neutral':s.cls; return `<button class="card cow-card open-cow ${c.active===false?'inactive-card':''}" data-id="${esc(c.id)}"><span><span class="cow-name">${esc(c.name||'Sans nom')} · ${esc(c.workNumber)}</span><span class="cow-sub">${nc?`🍼 mise bas présumée ${frDate(nc)} • `:''}${ageText(c.birthDate)}${lc?` • dernier vêlage ${frDate(lc)}`:''}${c.calvingCount?` • rang ${c.calvingCount}`:''}${c.reproOverride==='include'?' • inclusion forcée':''}</span></span><span class="badge ${cls}">${esc(badge)}</span></button>`}).join(''):`<div class="empty">Aucune vache trouvée.</div>`;
+  $('#cowList').innerHTML=list.length?list.map(c=>{const s=reproductiveStatus(c), lc=lastCalving(c), nc=nextCalvingDate(c), p=prio.get(c.id); const under=isUnderAge(c)&&c.reproOverride!=='include'; const excluded=c.reproOverride==='exclude'; const badge=c.active===false?'Sortie':under?'Hors âge':excluded?'Exclue du suivi':s.label; const cls=c.active===false||under||excluded?'neutral':s.cls; const prioTxt=sortMode==='priority'&&p&&p.group<3?`⏱ ${esc(p.label)} ${frDate(p.date)} • `:''; return `<button class="card cow-card open-cow ${c.active===false?'inactive-card':''}" data-id="${esc(c.id)}"><span><span class="cow-name">${esc(c.name||'Sans nom')} · ${esc(c.workNumber)}</span><span class="cow-sub">${prioTxt}${nc?`🍼 mise bas présumée ${frDate(nc)} • `:''}${ageText(c.birthDate)}${lc?` • dernier vêlage ${frDate(lc)}`:''}${c.calvingCount?` • rang ${c.calvingCount}`:''}${c.reproOverride==='include'?' • inclusion forcée':''}</span></span><span class="badge ${cls}">${esc(badge)}</span></button>`}).join(''):`<div class="empty">Aucune vache trouvée.</div>`;
   bindCowOpen();
 }
 function bindCowOpen(){ $$('.open-cow').forEach(b=>b.onclick=()=>openCow(b.dataset.id)) }
@@ -496,14 +529,26 @@ function renderSettings(){
  const cemail=$('#cloudUserEmail'); if(cemail)cemail.textContent=cloudUserEmail()||'Non connecté';
 }
 
+function openCalendarDay(day){
+  const alerts=calendarAlertsForDay(day);
+  const d=new Date(day+'T12:00:00');
+  const box=$('#calendarDayDetail');
+  if(!box)return;
+  box.innerHTML=`<div class="dialog-head"><div><h2>${frDate(d,{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</h2><div class="muted small">${alerts.length} alerte${alerts.length>1?'s':''} avec les filtres actuels</div></div><button type="button" id="closeCalendarDay" class="iconbtn">✕</button></div><div class="cards calendar-day-alerts">${alerts.length?alerts.map(alertHTML).join(''):'<div class="empty">Aucune alerte affichée pour cette journée.</div>'}</div>`;
+  $('#closeCalendarDay').onclick=()=>$('#calendarDayDialog').close();
+  box.querySelectorAll('.open-cow').forEach(b=>b.onclick=()=>{const id=b.dataset.id;$('#calendarDayDialog').close();openCow(id)});
+  $('#calendarDayDialog').showModal();
+}
+function bindCalendarDayOpen(){ $$('.calendar-day-open').forEach(b=>b.onclick=()=>openCalendarDay(b.dataset.date)) }
+
 function renderCalendar(){
  const start=new Date(calDate), end=new Date(calDate); let days=[];
  if(calMode==='day'){days=[new Date(calDate)]; $('#calTitle').textContent=frDate(calDate,{weekday:'long',day:'numeric',month:'long',year:'numeric'});}
  if(calMode==='week'){const wd=(calDate.getDay()+6)%7; start.setDate(calDate.getDate()-wd); end.setTime(start.getTime()); end.setDate(start.getDate()+6); for(let i=0;i<7;i++)days.push(addDays(start,i)); $('#calTitle').textContent=`${frDate(start,{day:'numeric',month:'short'})} – ${frDate(end,{day:'numeric',month:'short',year:'numeric'})}`}
  if(calMode==='month'){
-   start.setDate(1); $('#calTitle').textContent=frDate(start,{month:'long',year:'numeric'}); const y=start.getFullYear(),m=start.getMonth(), first=(start.getDay()+6)%7, count=new Date(y,m+1,0).getDate(); let html='<div class="month-grid">'+['L','M','M','J','V','S','D'].map(x=>`<div class="muted">${x}</div>`).join(''); for(let i=0;i<first;i++)html+='<div></div>'; for(let d=1;d<=count;d++){const dt=new Date(y,m,d,12), iso=dateISO(dt), al=calendarAlertsForDay(iso); html+=`<div class="month-cell"><div class="n">${d}</div>${al.slice(0,3).map(a=>`<div><span class="dot"></span><span class="event-text">${esc(a.cow.workNumber)}</span></div>`).join('')}${al.length>3?`<small>+${al.length-3}</small>`:''}</div>`} html+='</div>'; $('#calendarContent').innerHTML=html; return;
+   start.setDate(1); $('#calTitle').textContent=frDate(start,{month:'long',year:'numeric'}); const y=start.getFullYear(),m=start.getMonth(), first=(start.getDay()+6)%7, count=new Date(y,m+1,0).getDate(); let html='<div class="month-grid">'+['L','M','M','J','V','S','D'].map(x=>`<div class="muted">${x}</div>`).join(''); for(let i=0;i<first;i++)html+='<div></div>'; for(let d=1;d<=count;d++){const dt=new Date(y,m,d,12), iso=dateISO(dt), al=calendarAlertsForDay(iso); html+=`<button type="button" class="month-cell calendar-day-open" data-date="${iso}" aria-label="Voir les alertes du ${d}"><div class="n">${d}</div>${al.slice(0,3).map(a=>`<div><span class="dot"></span><span class="event-text">${esc(a.cow.workNumber)}</span></div>`).join('')}${al.length>3?`<small>+${al.length-3}</small>`:''}</button>`} html+='</div>'; $('#calendarContent').innerHTML=html; bindCalendarDayOpen(); return;
  }
- $('#calendarContent').innerHTML=days.map(d=>{const iso=dateISO(d), a=calendarAlertsForDay(iso); return `<div class="day-block"><div class="day-title">${frDate(d,{weekday:'long',day:'numeric',month:'long'})}</div>${a.length?a.map(alertHTML).join(''):`<div class="empty">Rien à surveiller</div>`}</div>`}).join(''); bindCowOpen();
+ $('#calendarContent').innerHTML=days.map(d=>{const iso=dateISO(d), a=calendarAlertsForDay(iso); return `<div class="day-block"><button type="button" class="day-title calendar-day-open" data-date="${iso}">${frDate(d,{weekday:'long',day:'numeric',month:'long'})} <span class="day-open-hint">Voir le détail ›</span></button>${a.length?a.map(alertHTML).join(''):`<div class="empty">Rien à surveiller</div>`}</div>`}).join(''); bindCowOpen(); bindCalendarDayOpen();
 }
 
 function findEventOwner(eventId){for(const c of state.cows){const ev=(c.events||[]).find(e=>e.id===eventId);if(ev)return {cow:c,event:ev}}return null}
@@ -633,11 +678,13 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('#notifyBtn').onclick=requestNotifications;
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $$('.calendar-filter-chips [data-cal-filter]').forEach(b=>b.onclick=()=>{const k=b.dataset.calFilter;calendarFilters[k]=!calendarFilters[k];b.classList.toggle('active',calendarFilters[k]);localStorage.setItem('repro-calendar-filters',JSON.stringify(calendarFilters));renderCalendar()});
+ $$('.home-filter-chips [data-home-filter]').forEach(b=>b.onclick=()=>{const k=b.dataset.homeFilter;homeFilters[k]=!homeFilters[k];b.classList.toggle('active',homeFilters[k]);localStorage.setItem('repro-home-filters',JSON.stringify(homeFilters));renderHome()});
  $('#cowSort').onchange=renderCows;
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  $$('.calendar-filter-chips [data-cal-filter]').forEach(b=>b.classList.toggle('active',calendarFilters[b.dataset.calFilter]!==false));
+ $$('.home-filter-chips [data-home-filter]').forEach(b=>b.classList.toggle('active',homeFilters[b.dataset.homeFilter]!==false));
  renderAll(); initCloudAuth();
- // v1.4.9: service worker remains disabled while Supabase authentication is stabilized.
+ // v1.5.1: service worker remains disabled while Supabase authentication is stabilized.
  maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
@@ -645,5 +692,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  window.addEventListener('online',()=>syncCloud());
 });
 
-// v1.4.9: purge legacy PWA workers/caches once, before next auth attempt.
+// v1.5.1: purge legacy PWA workers/caches once, before next auth attempt.
 if(!sessionStorage.getItem('reproV146Purge')){sessionStorage.setItem('reproV146Purge','1');clearLegacyPwaCaches();}

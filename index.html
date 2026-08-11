@@ -6,16 +6,16 @@
   <meta name="theme-color" content="#7b3f61">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Repro Bovine v1.4.9</title>
-  <link rel="manifest" href="manifest.webmanifest?v=146">
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=149">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=146">
-  <link rel="stylesheet" href="styles.css?v=146">
+  <title>Repro Bovine v1.5.1</title>
+  <link rel="manifest" href="manifest.webmanifest?v=151">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=151">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=151">
+  <link rel="stylesheet" href="styles.css?v=151">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="brand"><img src="icon-192.png?v=149" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.4.9</span></div>
+      <div class="brand"><img src="icon-192.png?v=151" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.5.1</span></div>
       <div id="todayLabel" class="muted small"></div>
       <div id="cloudBadge" class="cloud-badge">☁️ Connexion…</div>
     </div>
@@ -30,6 +30,14 @@
         <button class="metric"><strong id="countPregnant">0</strong><span>Pleines / supposées</span></button>
       </div>
       <div class="section-head"><h2>Priorités du jour</h2><button id="notifyBtn" class="ghost smallbtn">🔔 Notifications</button></div>
+      <div class="home-filter-box">
+        <div class="home-filter-chips">
+          <button type="button" class="chip active" data-home-filter="heat">🔁 Retours en chaleur</button>
+          <button type="button" class="chip active" data-home-filter="gestation">🍼 Gestations / vêlages</button>
+          <button type="button" class="chip" data-home-filter="postpartum">👀 Sans chaleur post-vêlage</button>
+        </div>
+        <div class="muted small">Les vaches sans chaleur enregistrée depuis le dernier vêlage sont masquées par défaut. Active ce filtre si tu veux les revoir.</div>
+      </div>
       <div id="todayAlerts" class="cards"></div>
       <div class="section-head"><h2>Prochainement</h2><span class="muted">7 jours</span></div>
       <div id="weekAlerts" class="cards"></div>
@@ -53,7 +61,7 @@
     <section id="view-cows" class="view">
       <div class="section-head"><div class="searchbox cow-search-main"><span>🔎</span><input id="cowSearch" placeholder="Nom ou numéro de travail" autocomplete="off"></div><button id="addCowBtn" class="primary compact">＋ Vache</button></div>
       <div class="chips"><button class="chip active" data-cow-filter="all">Toutes</button><button class="chip" data-cow-filter="pregnant">Pleines</button><button class="chip" data-cow-filter="watch">À surveiller</button><button class="chip" data-cow-filter="postpartum">Post-vêlage</button><button class="chip" data-cow-filter="underage">Hors âge</button><button class="chip" data-cow-filter="excluded">Exclues</button><button class="chip" data-cow-filter="inactive">Sorties</button></div>
-      <div class="cow-sort-row"><label for="cowSort">Trier par</label><select id="cowSort"><option value="calving">Prochaine mise bas présumée</option><option value="work">N° de travail</option><option value="name">Nom</option></select></div>
+      <div class="cow-sort-row"><label for="cowSort">Trier par</label><select id="cowSort"><option value="priority">Priorité chronologique</option><option value="calving">Prochaine mise bas présumée</option><option value="lastcalving">Dernier vêlage (plus ancien d’abord)</option><option value="work">N° de travail</option><option value="name">Nom</option></select></div>
       <div id="cowList" class="cards"></div>
     </section>
 
@@ -106,7 +114,7 @@
 
   <dialog id="authDialog" class="auth-dialog">
     <form id="authForm">
-      <div class="auth-logo"><img src="icon-192.png?v=149" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=151" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
       <p class="muted">Connecte-toi avec ton adresse email et ton mot de passe Supabase.</p>
       <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
       <label>Mot de passe<input id="authPassword" type="password" autocomplete="current-password" required></label>
@@ -132,7 +140,7 @@
 
   <dialog id="passwordResetDialog" class="auth-dialog">
     <form id="passwordResetForm">
-      <div class="auth-logo"><img src="icon-192.png?v=149" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=151" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
       <p class="muted">Choisis ton nouveau mot de passe. Le lien reçu par email t’a déjà authentifiée temporairement.</p>
       <label>Nouveau mot de passe<input id="newPassword" type="password" autocomplete="new-password" minlength="6" required></label>
       <label>Confirmer le mot de passe<input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="6" required></label>
@@ -167,6 +175,10 @@
     </form>
   </dialog>
 
+  <dialog id="calendarDayDialog">
+    <div id="calendarDayDetail" class="calendar-day-detail"></div>
+  </dialog>
+
   <dialog id="cowDialog"><div id="cowDetail"></div></dialog>
   <dialog id="cowFormDialog"><form method="dialog" id="cowForm"><div class="dialog-head"><h2 id="cowFormTitle">Ajouter une vache</h2><button value="cancel" class="iconbtn">✕</button></div>
     <input type="hidden" id="cowEditId">
@@ -182,8 +194,8 @@
   </form></dialog>
   <dialog id="bullDialog"><form id="bullForm"><div class="dialog-head"><h2 id="bullDialogTitle">Ajouter un taureau</h2><button type="button" id="cancelBullTop" class="iconbtn">✕</button></div><input type="hidden" id="bullEditId"><label>Nom<input id="bullName" required></label><label>Numéro<input id="bullNumber"></label><div class="dialog-actions"><button class="primary" type="submit" id="saveBullBtn">Ajouter</button><button class="ghost" type="button" id="cancelBullBottom">Annuler</button></div></form></dialog>
 
-  <script src="initial-data.js?v=146"></script>
+  <script src="initial-data.js?v=151"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
-  <script src="app.js?v=146"></script>
+  <script src="app.js?v=151"></script>
 </body>
 </html>
