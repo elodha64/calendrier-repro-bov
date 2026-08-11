@@ -1,3 +1,4 @@
+V1.4.6 : connexion/authentification refaite avec le client officiel Supabase JS v2 (CDN avec secours jsDelivr/unpkg). Test réseau indépendant du mot de passe.
 Repro Bovine v1.4.1
 - Ajout du parcours Mot de passe oublié : le lien Supabase ouvre désormais directement un formulaire Nouveau mot de passe.
 - Les jetons de récupération sont retirés de l’URL après traitement.

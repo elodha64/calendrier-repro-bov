@@ -6,13 +6,28 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.5 : Supabase cloud / multi-utilisateurs + password recovery ---
+// --- Repro Bovine v1.4.6 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
 const CLOUD_SESSION_KEY='reproBovineSupabaseSession';
 const CLOUD_SHADOW_KEY='reproBovineCloudShadowV14';
 let cloudSession=null, cloudSyncTimer=null, cloudSyncing=false, cloudReady=false;
+let supabaseClient=null;
+function getSupabaseClient(){
+ if(supabaseClient)return supabaseClient;
+ if(!window.supabase || typeof window.supabase.createClient!=='function'){
+   throw new Error('Bibliothèque Supabase JS non chargée. Vérifie que le navigateur peut accéder à cdn.jsdelivr.net ou unpkg.com.');
+ }
+ supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{
+   auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true,storageKey:'repro-bovine-auth-v146'}
+ });
+ return supabaseClient;
+}
+function sdkSessionToCloud(session){
+ if(!session)return null;
+ return {...session,expires_at:session.expires_at||Math.floor(Date.now()/1000)+(session.expires_in||3600)};
+}
 
 function cloudSetStatus(text,kind=''){
  const h=$('#cloudBadge'); if(h){h.textContent=text;h.className='cloud-badge '+kind}
@@ -30,8 +45,13 @@ async function sbAuthFetch(path,opts={}){
  }finally{clearTimeout(timer)}
 }
 async function refreshCloudSession(){
- if(!cloudSession?.refresh_token)return false;
- try{const r=await sbAuthFetch('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:cloudSession.refresh_token})});if(!r.ok)throw Error();const s=await r.json();s.expires_at=Math.floor(Date.now()/1000)+(s.expires_in||3600);storeCloudSession(s);return true}catch(_){return false}
+ try{
+   const client=getSupabaseClient();
+   const {data,error}=await client.auth.refreshSession();
+   if(error||!data?.session)return false;
+   storeCloudSession(sdkSessionToCloud(data.session));
+   return true;
+ }catch(_){return false}
 }
 async function ensureCloudSession(){if(!cloudSession)return false;if(sessionExpired(cloudSession)){if(!navigator.onLine)return true;return refreshCloudSession()}return true}
 async function cloudFetch(path,opts={},retry=true){
@@ -43,20 +63,34 @@ async function cloudFetch(path,opts={},retry=true){
  if(r.status===204)return null;const t=await r.text();return t?JSON.parse(t):null;
 }
 async function cloudLogin(email,password){
- let r;
- try{r=await sbAuthFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})})}
- catch(err){
-   const msg=err?.name==='AbortError'?'Supabase ne répond pas après 15 secondes.':'Connexion réseau vers Supabase impossible ('+(err?.message||'Load failed')+').';
-   throw new Error(msg+' Aucun mot de passe n’a été modifié.');
+ try{
+   const client=getSupabaseClient();
+   const {data,error}=await client.auth.signInWithPassword({email,password});
+   if(error)throw error;
+   if(!data?.session)throw new Error('Supabase n’a pas renvoyé de session de connexion.');
+   const sess=sdkSessionToCloud(data.session);
+   storeCloudSession(sess);
+   return sess;
+ }catch(err){
+   const msg=err?.message||String(err)||'Connexion impossible';
+   if(/invalid login credentials/i.test(msg))throw new Error('Email ou mot de passe incorrect.');
+   throw new Error('Connexion Supabase : '+msg);
  }
- if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.error_description||j.msg||j.message||('Erreur Supabase '+r.status))}
- const s=await r.json();s.expires_at=Math.floor(Date.now()/1000)+(s.expires_in||3600);storeCloudSession(s);return s;
 }
 async function testSupabaseNetwork(){
+ const steps=[];
  try{
-   const r=await sbAuthFetch('/auth/v1/settings',{method:'GET'});
-   return {ok:r.ok,status:r.status,text:await r.text()};
- }catch(err){return {ok:false,status:0,text:err?.name==='AbortError'?'Délai dépassé':(err?.message||'Load failed')}}
+   steps.push('Bibliothèque Supabase JS : OK');
+   const client=getSupabaseClient();
+   const {data,error,status,statusText}=await client.from('households').select('id').limit(1);
+   if(error){
+     return {ok:false,status:status||0,text:`Bibliothèque chargée, mais appel projet en erreur : ${error.message}${error.code?' ['+error.code+']':''}${status?' (HTTP '+status+')':''}`};
+   }
+   steps.push('Projet Supabase : joignable');
+   return {ok:true,status:status||200,text:steps.join(' • '),rows:Array.isArray(data)?data.length:0};
+ }catch(err){
+   return {ok:false,status:0,text:err?.message||String(err)||'Erreur inconnue'};
+ }
 }
 async function clearLegacyPwaCaches(){
  try{
@@ -65,8 +99,8 @@ async function clearLegacyPwaCaches(){
  }catch(_){}
 }
 
-async function cloudLogout(){try{if(cloudSession?.access_token)await cloudFetch('/auth/v1/logout',{method:'POST'})}catch(_){}storeCloudSession(null);cloudReady=false;showAuthDialog()}
-async function cloudRecover(email){const redirect=location.origin+location.pathname;const r=await sbAuthFetch('/auth/v1/recover?redirect_to='+encodeURIComponent(redirect),{method:'POST',body:JSON.stringify({email})});if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||'Envoi impossible')}return true}
+async function cloudLogout(){try{await getSupabaseClient().auth.signOut()}catch(_){}storeCloudSession(null);cloudReady=false;showAuthDialog()}
+async function cloudRecover(email){const redirect=location.origin+location.pathname;const {error}=await getSupabaseClient().auth.resetPasswordForEmail(email,{redirectTo:redirect});if(error)throw error;return true}
 function cloudUserEmail(){return cloudSession?.user?.email||''}
 function updateCloudUI(){
  const email=cloudUserEmail();const e=$('#cloudUserEmail');if(e)e.textContent=email||'Non connecté';
@@ -77,8 +111,11 @@ function hideAuthDialog(){const d=$('#authDialog');if(d?.open)d.close()}
 function showPasswordResetDialog(){hideAuthDialog();const d=$('#passwordResetDialog');if(d&&!d.open)d.showModal()}
 function hidePasswordResetDialog(){const d=$('#passwordResetDialog');if(d?.open)d.close()}
 async function hydrateCloudUser(){
- if(!cloudSession?.access_token)return;
- try{const r=await fetch(SUPABASE_URL+'/auth/v1/user',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token}});if(r.ok){cloudSession.user=await r.json();storeCloudSession(cloudSession)}}catch(_){}
+ try{
+   const client=getSupabaseClient();
+   const {data,error}=await client.auth.getUser();
+   if(!error&&data?.user&&cloudSession){cloudSession.user=data.user;storeCloudSession(cloudSession)}
+ }catch(_){}
 }
 function recoveryParams(){
  const hash=new URLSearchParams((location.hash||'').replace(/^#/,''));
@@ -113,19 +150,21 @@ async function handlePasswordRecoveryRedirect(){
  return true;
 }
 async function updateRecoveredPassword(password){
- if(!cloudSession?.access_token)throw new Error('Le lien de récupération a expiré. Demande un nouveau lien.');
- const r=await fetch(SUPABASE_URL+'/auth/v1/user',{method:'PUT',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token,'Content-Type':'application/json'},body:JSON.stringify({password})});
- if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||j.error_description||'Impossible de modifier le mot de passe')}
- cloudSession.user=await r.json();storeCloudSession(cloudSession);return true;
+ const client=getSupabaseClient();
+ const {data,error}=await client.auth.updateUser({password});
+ if(error)throw error;
+ if(data?.user&&cloudSession){cloudSession.user=data.user;storeCloudSession(cloudSession)}
+ return true;
 }
 
-
 async function updateAccountPassword(password){
- if(!cloudSession?.access_token)throw new Error('Tu dois être connectée pour modifier le mot de passe.');
- if(!await ensureCloudSession())throw new Error('Ta session a expiré. Reconnecte-toi puis réessaie.');
- const r=await fetch(SUPABASE_URL+'/auth/v1/user',{method:'PUT',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token,'Content-Type':'application/json'},body:JSON.stringify({password})});
- if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||j.error_description||'Impossible de modifier le mot de passe')}
- cloudSession.user=await r.json();storeCloudSession(cloudSession);return true;
+ const client=getSupabaseClient();
+ const {data:{session},error:sessionError}=await client.auth.getSession();
+ if(sessionError||!session)throw new Error('Ta session a expiré. Reconnecte-toi puis réessaie.');
+ const {data,error}=await client.auth.updateUser({password});
+ if(error)throw error;
+ if(data?.user&&cloudSession){cloudSession.user=data.user;storeCloudSession(cloudSession)}
+ return true;
 }
 function showChangePasswordDialog(){
  if(!cloudSession){alert('Connecte-toi d’abord à Repro Bovine.');showAuthDialog();return}
@@ -209,13 +248,25 @@ async function syncCloud({silent=false}={}){
 }
 function scheduleCloudSync(){if(!cloudSession)return;clearTimeout(cloudSyncTimer);cloudSyncTimer=setTimeout(()=>syncCloud({silent:true}),900)}
 async function initCloudAuth(){
+ try{
+   const client=getSupabaseClient();
+   const {data:{session}}=await client.auth.getSession();
+   if(session)storeCloudSession(sdkSessionToCloud(session));
+   client.auth.onAuthStateChange(async(event,sessionNow)=>{
+     if(sessionNow)storeCloudSession(sdkSessionToCloud(sessionNow));
+     if(event==='PASSWORD_RECOVERY')showPasswordResetDialog();
+   });
+ }catch(err){
+   console.warn('Supabase SDK init',err);
+ }
  if(await handlePasswordRecoveryRedirect())return;
- cloudSession=getStoredCloudSession();updateCloudUI();
+ cloudSession=cloudSession||getStoredCloudSession();updateCloudUI();
  if(!cloudSession){cloudSetStatus('☁️ Connexion requise','warn');showAuthDialog();return}
  hideAuthDialog();cloudSetStatus(navigator.onLine?'☁️ Connexion…':'☁️ Mode hors ligne',navigator.onLine?'sync':'warn');
  if(navigator.onLine){if(!await ensureCloudSession()){storeCloudSession(null);showAuthDialog();return}await hydrateCloudUser();await syncCloud()}
  else {cloudReady=true;renderAll()}
 }
+
 
 
 function normalizeState(x){
@@ -539,7 +590,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  if(out){out.textContent='⏳ Test en cours…';out.style.color=''}
  const r=await testSupabaseNetwork();
  if(r.ok){
-   if(out){out.textContent='✅ Supabase joignable (HTTP '+r.status+'). Tu peux ensuite essayer de te connecter.';out.style.color='#267344'}
+   if(out){out.textContent='✅ '+(r.text||'Supabase joignable')+' (HTTP '+r.status+'). Tu peux maintenant essayer de te connecter.';out.style.color='#267344'}
  }else{
    if(out){out.textContent='❌ Supabase inaccessible : '+(r.text||('HTTP '+r.status))+'. Ne touche pas au mot de passe.';out.style.color='#b3263b'}
  }
@@ -562,7 +613,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  renderAll(); initCloudAuth();
- // v1.4.5: no service worker registration while Supabase authentication is being stabilized.
+ // v1.4.6: no service worker registration while Supabase authentication is being stabilized.
  maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
@@ -570,5 +621,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  window.addEventListener('online',()=>syncCloud());
 });
 
-// v1.4.5: purge legacy PWA workers/caches once, before next auth attempt.
-if(!sessionStorage.getItem('reproV145Purge')){sessionStorage.setItem('reproV145Purge','1');clearLegacyPwaCaches();}
+// v1.4.6: purge legacy PWA workers/caches once, before next auth attempt.
+if(!sessionStorage.getItem('reproV146Purge')){sessionStorage.setItem('reproV146Purge','1');clearLegacyPwaCaches();}
