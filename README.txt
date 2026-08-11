@@ -76,3 +76,5 @@ Notifications appli fermée : la base et la table push_subscriptions sont prête
 
 
 V1.4.2 : correctif Safari/iPhone du service worker. Les requêtes Supabase et autres requêtes cross-origin ne sont plus interceptées par le cache PWA. Correctif du flux de récupération de mot de passe.
+
+V1.4.3 : changement de mot de passe depuis Réglages > Cloud partagé pour un utilisateur connecté, sans email de récupération.

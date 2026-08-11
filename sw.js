@@ -1,4 +1,4 @@
-const CACHE='repro-bovine-v1-4-2';
+const CACHE='repro-bovine-v1-4-3';
 const ASSETS=['./','./index.html','./styles.css','./app.js','./initial-data.js','./manifest.webmanifest','./icon-192.png','./icon-512.png','./apple-touch-icon.png'];
 
 self.addEventListener('install',event=>{

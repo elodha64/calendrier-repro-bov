@@ -6,7 +6,7 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.2 : Supabase cloud / multi-utilisateurs + password recovery ---
+// --- Repro Bovine v1.4.3 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -96,6 +96,21 @@ async function updateRecoveredPassword(password){
  if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||j.error_description||'Impossible de modifier le mot de passe')}
  cloudSession.user=await r.json();storeCloudSession(cloudSession);return true;
 }
+
+
+async function updateAccountPassword(password){
+ if(!cloudSession?.access_token)throw new Error('Tu dois être connectée pour modifier le mot de passe.');
+ if(!await ensureCloudSession())throw new Error('Ta session a expiré. Reconnecte-toi puis réessaie.');
+ const r=await fetch(SUPABASE_URL+'/auth/v1/user',{method:'PUT',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token,'Content-Type':'application/json'},body:JSON.stringify({password})});
+ if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||j.error_description||'Impossible de modifier le mot de passe')}
+ cloudSession.user=await r.json();storeCloudSession(cloudSession);return true;
+}
+function showChangePasswordDialog(){
+ if(!cloudSession){alert('Connecte-toi d’abord à Repro Bovine.');showAuthDialog();return}
+ const d=$('#changePasswordDialog');
+ if(d&&!d.open){$('#accountNewPassword').value='';$('#accountNewPasswordConfirm').value='';$('#changePasswordError').textContent='';d.showModal()}
+}
+function hideChangePasswordDialog(){const d=$('#changePasswordDialog');if(d?.open)d.close()}
 
 function cowNational(c){return c.id&&!String(c.id).startsWith('manual-')&&!String(c.id).startsWith('cloud-')?String(c.id):null}
 function cowPayload(c){return {id:c.cloudId||undefined,household_id:HOUSEHOLD_ID,work_number:c.workNumber||null,national_number:cowNational(c),name:c.name||null,birth_date:c.birthDate||null,sex:'F',breed:c.breed||null,last_calving_date:c.lastCalving||null,calving_rank:Number(c.calvingCount)||0,active:c.active!==false,exit_date:c.exitDate||null,exit_reason:c.exitReason||null,repro_override:c.reproOverride||null,manual_created:c.source==='manual',source_updated_at:new Date().toISOString()}}
@@ -499,6 +514,10 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('#recoverBtn').onclick=async()=>{const email=$('#authEmail').value.trim();if(!email){$('#authError').textContent='Indique ton adresse email.';return}try{await cloudRecover(email);$('#authError').textContent='Email de réinitialisation envoyé.'}catch(err){$('#authError').textContent=err.message||'Envoi impossible'}};
  $('#passwordResetForm').onsubmit=async e=>{e.preventDefault();const p1=$('#newPassword').value,p2=$('#newPasswordConfirm').value,err=$('#passwordResetError');err.textContent='';if(p1.length<6){err.textContent='Choisis un mot de passe d’au moins 6 caractères.';return}if(p1!==p2){err.textContent='Les deux mots de passe ne sont pas identiques.';return}err.textContent='Enregistrement…';try{await updateRecoveredPassword(p1);err.textContent='';hidePasswordResetDialog();cloudSetStatus('☁️ Connexion…','sync');await syncCloud();alert('Mot de passe modifié. Tu es maintenant connectée à Repro Bovine.')}catch(ex){err.textContent=ex.message||'Modification impossible'}};
  $('#cloudLogoutBtn').onclick=cloudLogout; $('#cloudSyncBtn').onclick=()=>syncCloud();
+ $('#changePasswordBtn').onclick=showChangePasswordDialog;
+ $('#closeChangePasswordBtn').onclick=hideChangePasswordDialog;
+ $('#cancelChangePasswordBtn').onclick=hideChangePasswordDialog;
+ $('#changePasswordForm').onsubmit=async e=>{e.preventDefault();const p1=$('#accountNewPassword').value,p2=$('#accountNewPasswordConfirm').value,err=$('#changePasswordError');err.textContent='';if(p1.length<6){err.textContent='Choisis un mot de passe d’au moins 6 caractères.';return}if(p1!==p2){err.textContent='Les deux mots de passe ne sont pas identiques.';return}err.textContent='Enregistrement…';try{await updateAccountPassword(p1);err.textContent='';hideChangePasswordDialog();alert('Mot de passe modifié avec succès. Aucun email de récupération n’a été envoyé.')}catch(ex){err.textContent=ex.message||'Modification impossible'}};
  $$('.bottomnav button').forEach(b=>b.onclick=()=>switchView(b.dataset.view)); $('#quickAddBtn').onclick=()=>openEvent();
  $('#cowSearch').oninput=renderCows; $('#addCowBtn').onclick=()=>openCowForm(); $('#cowForm').onsubmit=saveCowForm; $$('.chip').forEach(b=>b.onclick=()=>{$$('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');cowFilter=b.dataset.cowFilter;renderCows()});
  $('#eventCowSearch').oninput=()=>{const q=norm($('#eventCowSearch').value); if(q.length<1){$('#eventCowMatches').innerHTML='';return} const list=state.cows.filter(c=>isReproEligible(c)&&(norm(c.name).includes(q)||norm(c.workNumber).includes(q))).slice(0,8); $('#eventCowMatches').innerHTML=list.map(c=>`<button type="button" class="match" data-pick="${esc(c.id)}"><strong>${esc(c.name||'Sans nom')} · ${esc(c.workNumber)}</strong><div class="cow-sub">${ageText(c.birthDate)}</div></button>`).join(''); $$('[data-pick]').forEach(b=>b.onclick=()=>selectEventCow(state.cows.find(c=>c.id===b.dataset.pick)))};
