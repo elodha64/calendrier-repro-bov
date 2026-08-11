@@ -6,7 +6,7 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4 : Supabase cloud / multi-utilisateurs ---
+// --- Repro Bovine v1.4.1 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -44,7 +44,7 @@ async function cloudLogin(email,password){
  const s=await r.json();s.expires_at=Math.floor(Date.now()/1000)+(s.expires_in||3600);storeCloudSession(s);return s;
 }
 async function cloudLogout(){try{if(cloudSession?.access_token)await cloudFetch('/auth/v1/logout',{method:'POST'})}catch(_){}storeCloudSession(null);cloudReady=false;showAuthDialog()}
-async function cloudRecover(email){const r=await sbAuthFetch('/auth/v1/recover',{method:'POST',body:JSON.stringify({email})});if(!r.ok)throw new Error('Envoi impossible');return true}
+async function cloudRecover(email){const redirect=location.origin+location.pathname;const r=await sbAuthFetch('/auth/v1/recover?redirect_to='+encodeURIComponent(redirect),{method:'POST',body:JSON.stringify({email})});if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||'Envoi impossible')}return true}
 function cloudUserEmail(){return cloudSession?.user?.email||''}
 function updateCloudUI(){
  const email=cloudUserEmail();const e=$('#cloudUserEmail');if(e)e.textContent=email||'Non connecté';
@@ -52,6 +52,37 @@ function updateCloudUI(){
 }
 function showAuthDialog(){const d=$('#authDialog');if(d&&!d.open)d.showModal()}
 function hideAuthDialog(){const d=$('#authDialog');if(d?.open)d.close()}
+function showPasswordResetDialog(){hideAuthDialog();const d=$('#passwordResetDialog');if(d&&!d.open)d.showModal()}
+function hidePasswordResetDialog(){const d=$('#passwordResetDialog');if(d?.open)d.close()}
+async function hydrateCloudUser(){
+ if(!cloudSession?.access_token)return;
+ try{const r=await fetch(SUPABASE_URL+'/auth/v1/user',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token}});if(r.ok){cloudSession.user=await r.json();storeCloudSession(cloudSession)}}catch(_){}
+}
+function recoveryParams(){
+ const hash=new URLSearchParams((location.hash||'').replace(/^#/,''));
+ const search=new URLSearchParams(location.search||'');
+ const get=k=>hash.get(k)||search.get(k);
+ return {type:get('type'),access_token:get('access_token'),refresh_token:get('refresh_token'),expires_in:Number(get('expires_in')||3600),error:get('error_description')||get('error')};
+}
+async function handlePasswordRecoveryRedirect(){
+ const p=recoveryParams();
+ if(p.error){$('#authError').textContent=decodeURIComponent(p.error);showAuthDialog();return false}
+ if(p.type!=='recovery' || !p.access_token)return false;
+ const s={access_token:p.access_token,refresh_token:p.refresh_token||'',expires_in:p.expires_in,expires_at:Math.floor(Date.now()/1000)+p.expires_in,token_type:'bearer'};
+ storeCloudSession(s);
+ await hydrateCloudUser();
+ // Retire les jetons de l'URL dès qu'ils sont stockés.
+ history.replaceState(null,document.title,location.pathname);
+ showPasswordResetDialog();
+ cloudSetStatus('🔐 Nouveau mot de passe à définir','warn');
+ return true;
+}
+async function updateRecoveredPassword(password){
+ if(!cloudSession?.access_token)throw new Error('Le lien de récupération a expiré. Demande un nouveau lien.');
+ const r=await fetch(SUPABASE_URL+'/auth/v1/user',{method:'PUT',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token,'Content-Type':'application/json'},body:JSON.stringify({password})});
+ if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||j.error_description||'Impossible de modifier le mot de passe')}
+ cloudSession.user=await r.json();storeCloudSession(cloudSession);return true;
+}
 
 function cowNational(c){return c.id&&!String(c.id).startsWith('manual-')&&!String(c.id).startsWith('cloud-')?String(c.id):null}
 function cowPayload(c){return {id:c.cloudId||undefined,household_id:HOUSEHOLD_ID,work_number:c.workNumber||null,national_number:cowNational(c),name:c.name||null,birth_date:c.birthDate||null,sex:'F',breed:c.breed||null,last_calving_date:c.lastCalving||null,calving_rank:Number(c.calvingCount)||0,active:c.active!==false,exit_date:c.exitDate||null,exit_reason:c.exitReason||null,repro_override:c.reproOverride||null,manual_created:c.source==='manual',source_updated_at:new Date().toISOString()}}
@@ -128,10 +159,11 @@ async function syncCloud({silent=false}={}){
 }
 function scheduleCloudSync(){if(!cloudSession)return;clearTimeout(cloudSyncTimer);cloudSyncTimer=setTimeout(()=>syncCloud({silent:true}),900)}
 async function initCloudAuth(){
+ if(await handlePasswordRecoveryRedirect())return;
  cloudSession=getStoredCloudSession();updateCloudUI();
  if(!cloudSession){cloudSetStatus('☁️ Connexion requise','warn');showAuthDialog();return}
  hideAuthDialog();cloudSetStatus(navigator.onLine?'☁️ Connexion…':'☁️ Mode hors ligne',navigator.onLine?'sync':'warn');
- if(navigator.onLine){if(!await ensureCloudSession()){storeCloudSession(null);showAuthDialog();return}await syncCloud()}
+ if(navigator.onLine){if(!await ensureCloudSession()){storeCloudSession(null);showAuthDialog();return}await hydrateCloudUser();await syncCloud()}
  else {cloudReady=true;renderAll()}
 }
 
@@ -452,6 +484,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('#todayLabel').textContent=today().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
  $('#authForm').onsubmit=async e=>{e.preventDefault();const email=$('#authEmail').value.trim(),pw=$('#authPassword').value;$('#authError').textContent='Connexion…';try{await cloudLogin(email,pw);$('#authError').textContent='';hideAuthDialog();await syncCloud()}catch(err){$('#authError').textContent=err.message||'Connexion impossible'}};
  $('#recoverBtn').onclick=async()=>{const email=$('#authEmail').value.trim();if(!email){$('#authError').textContent='Indique ton adresse email.';return}try{await cloudRecover(email);$('#authError').textContent='Email de réinitialisation envoyé.'}catch(err){$('#authError').textContent=err.message||'Envoi impossible'}};
+ $('#passwordResetForm').onsubmit=async e=>{e.preventDefault();const p1=$('#newPassword').value,p2=$('#newPasswordConfirm').value,err=$('#passwordResetError');err.textContent='';if(p1.length<6){err.textContent='Choisis un mot de passe d’au moins 6 caractères.';return}if(p1!==p2){err.textContent='Les deux mots de passe ne sont pas identiques.';return}err.textContent='Enregistrement…';try{await updateRecoveredPassword(p1);err.textContent='';hidePasswordResetDialog();cloudSetStatus('☁️ Connexion…','sync');await syncCloud();alert('Mot de passe modifié. Tu es maintenant connectée à Repro Bovine.')}catch(ex){err.textContent=ex.message||'Modification impossible'}};
  $('#cloudLogoutBtn').onclick=cloudLogout; $('#cloudSyncBtn').onclick=()=>syncCloud();
  $$('.bottomnav button').forEach(b=>b.onclick=()=>switchView(b.dataset.view)); $('#quickAddBtn').onclick=()=>openEvent();
  $('#cowSearch').oninput=renderCows; $('#addCowBtn').onclick=()=>openCowForm(); $('#cowForm').onsubmit=saveCowForm; $$('.chip').forEach(b=>b.onclick=()=>{$$('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');cowFilter=b.dataset.cowFilter;renderCows()});

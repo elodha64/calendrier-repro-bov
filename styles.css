@@ -30,3 +30,7 @@ input[type="checkbox"],input[type="radio"]{width:auto;padding:0;margin:0;accent-
 /* v1.4 cloud / authentication */
 .cloud-badge{display:inline-flex;align-items:center;margin-top:3px;padding:3px 7px;border-radius:999px;background:#eee8ec;color:var(--muted);font-size:.72rem;font-weight:700}.cloud-badge.ok{background:#dcecdf;color:var(--ok)}.cloud-badge.sync{background:#e9eef9;color:#35568a}.cloud-badge.warn{background:#fff0d4;color:#855409}.cloud-panel{display:grid;gap:10px}.cloud-actions{display:flex;gap:8px;flex-wrap:wrap}.auth-dialog{max-width:440px}.auth-dialog form{padding:22px}.auth-logo{display:flex;align-items:center;gap:12px;margin-bottom:10px}.auth-logo img{width:58px;height:58px;border-radius:15px}.auth-logo h2{margin:0;font-size:1.35rem}.auth-logo p{margin:3px 0 0;color:var(--muted)}.auth-error{min-height:20px;color:var(--danger);font-weight:650}.auth-dialog::backdrop{background:rgba(33,23,30,.7)}
 @media(max-width:540px){.cloud-actions{display:grid;grid-template-columns:1fr}.cloud-actions button{width:100%}.cloud-badge{font-size:.66rem}}
+
+/* v1.4.1 password recovery */
+#passwordResetDialog .auth-error{margin-top:12px}
+#passwordResetDialog label{margin-top:14px}

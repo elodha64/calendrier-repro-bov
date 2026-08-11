@@ -1,3 +1,7 @@
+Repro Bovine v1.4.1
+- Ajout du parcours Mot de passe oublié : le lien Supabase ouvre désormais directement un formulaire Nouveau mot de passe.
+- Les jetons de récupération sont retirés de l’URL après traitement.
+
 REPRO BOVINE — V1.3
 
 NOUVEAUTÉS V1.3
