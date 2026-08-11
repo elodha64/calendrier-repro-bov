@@ -88,3 +88,26 @@ V1.5.2 — Gestations estimées / dates incertaines / estive
 - Option "Vache en estive" : surveillance vêlage anticipée de 23 jours, sans modifier le terme théorique.
 - La fiche conserve le terme central, la fenêtre probable et explique la raison de l'alerte anticipée.
 - Ces données sont intégrées aux événements et synchronisées via Supabase sans nouvelle table SQL.
+
+=== V1.6.0 — ESTIVE & LOCALISATION ===
+
+IMPORTANT AVANT UTILISATION PARTAGÉE :
+1. Dans Supabase > SQL Editor, exécuter UNE SEULE FOIS le fichier :
+   supabase_v1_6_estive_localisation.sql
+2. Ensuite seulement, remplacer les fichiers GitHub Pages par la V1.6.0.
+
+Nouveautés :
+- onglet « Lieux » ;
+- import saisonnier d’un CSV d’estive ;
+- les vaches reconnues sont automatiquement marquées « en estive » ;
+- la surveillance vêlage est automatiquement avancée de 23 jours pour les vaches en estive ;
+- création de lieux : parcelles/prairies, estives, bâtiments, autres ;
+- affectation d’une vache à un lieu depuis sa fiche ;
+- déplacement groupé de plusieurs vaches ;
+- historique des changements de localisation ;
+- clôture d’estive : retire automatiquement le statut estive et garde l’historique ;
+- les informations de localisation et d’estive sont synchronisées via Supabase entre les deux utilisateurs.
+
+Import estive :
+Le fichier est reconnu à partir des colonnes « Identifiant bovin » et/ou « Numéro travail ».
+Les animaux absents de la base active sont signalés comme non reconnus, mais aucun animal du troupeau n’est supprimé.

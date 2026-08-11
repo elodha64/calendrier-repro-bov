@@ -6,16 +6,16 @@
   <meta name="theme-color" content="#7b3f61">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Repro Bovine v1.5.2</title>
-  <link rel="manifest" href="manifest.webmanifest?v=152">
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=152">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=152">
-  <link rel="stylesheet" href="styles.css?v=152">
+  <title>Repro Bovine v1.6.0</title>
+  <link rel="manifest" href="manifest.webmanifest?v=160">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=160">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=160">
+  <link rel="stylesheet" href="styles.css?v=160">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="brand"><img src="icon-192.png?v=152" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.5.2</span></div>
+      <div class="brand"><img src="icon-192.png?v=160" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.6.0</span></div>
       <div id="todayLabel" class="muted small"></div>
       <div id="cloudBadge" class="cloud-badge">☁️ Connexion…</div>
     </div>
@@ -65,6 +65,31 @@
       <div id="cowList" class="cards"></div>
     </section>
 
+    <section id="view-locations" class="view">
+      <div class="section-head"><h2>Estive & localisation</h2><button id="addLocationBtn" class="primary compact">＋ Lieu</button></div>
+      <div class="hero-grid location-metrics">
+        <div class="metric"><strong id="countEstive">0</strong><span>En estive</span></div>
+        <div class="metric"><strong id="countLocated">0</strong><span>Localisées</span></div>
+        <div class="metric"><strong id="countUnlocated">0</strong><span>Sans lieu</span></div>
+      </div>
+
+      <div class="card estive-import-card">
+        <div><strong>⛰️ Importer la liste d’estive</strong><div class="cow-sub">À refaire à chaque saison. Les animaux présents dans le fichier seront automatiquement marqués « en estive » et bénéficieront de la surveillance vêlage avancée de 23 jours.</div></div>
+        <div class="estive-import-grid">
+          <label>Saison<input id="estiveSeason" type="number" min="2020" max="2100"></label>
+          <label>Lieu d’estive<select id="estiveLocationSelect"></select></label>
+        </div>
+        <label class="primary wide file-button">Importer le CSV d’estive<input id="estiveCsvInput" type="file" accept=".csv,text/csv" hidden></label>
+        <div id="estiveInfo" class="muted small"></div>
+        <button type="button" id="closeEstiveBtn" class="ghost wide">Clôturer l’estive en cours</button>
+      </div>
+
+      <div class="section-head"><h2>Lieux / parcelles</h2><button id="batchMoveBtn" class="ghost compact">Déplacer plusieurs vaches</button></div>
+      <div id="locationList" class="cards"></div>
+      <h3>Derniers déplacements</h3>
+      <div id="locationHistory" class="cards"></div>
+    </section>
+
     <section id="view-bulls" class="view">
       <div class="section-head"><h2>Taureaux</h2><button id="addBullBtn" class="primary compact">＋ Ajouter</button></div>
       <p class="muted">Active les mâles réellement utilisés comme reproducteurs. Ils seront proposés lors d’une saillie naturelle.</p>
@@ -108,13 +133,14 @@
     <button data-view="home" class="active"><span>🏠</span><small>Aujourd’hui</small></button>
     <button data-view="calendar"><span>📅</span><small>Calendrier</small></button>
     <button data-view="cows"><span>🐄</span><small>Vaches</small></button>
+    <button data-view="locations"><span>📍</span><small>Lieux</small></button>
     <button data-view="bulls"><span>🐂</span><small>Taureaux</small></button>
     <button data-view="settings"><span>⚙️</span><small>Réglages</small></button>
   </nav>
 
   <dialog id="authDialog" class="auth-dialog">
     <form id="authForm">
-      <div class="auth-logo"><img src="icon-192.png?v=152" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=160" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
       <p class="muted">Connecte-toi avec ton adresse email et ton mot de passe Supabase.</p>
       <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
       <label>Mot de passe<input id="authPassword" type="password" autocomplete="current-password" required></label>
@@ -140,7 +166,7 @@
 
   <dialog id="passwordResetDialog" class="auth-dialog">
     <form id="passwordResetForm">
-      <div class="auth-logo"><img src="icon-192.png?v=152" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=160" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
       <p class="muted">Choisis ton nouveau mot de passe. Le lien reçu par email t’a déjà authentifiée temporairement.</p>
       <label>Nouveau mot de passe<input id="newPassword" type="password" autocomplete="new-password" minlength="6" required></label>
       <label>Confirmer le mot de passe<input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="6" required></label>
@@ -205,6 +231,7 @@
     <label>Numéro national / identifiant<input id="cowNationalId" autocomplete="off"></label>
     <label>Date de naissance<input id="cowBirthDate" type="date"></label>
     <label>Race<input id="cowBreed" placeholder="Ex. Blonde d’Aquitaine"></label>
+    <label>Lieu actuel<select id="cowLocation"></select></label>
     <label>Date du dernier vêlage<input id="cowLastCalving" type="date"></label>
     <label>Rang de vêlage<input id="cowCalvingCount" type="number" min="0" step="1"></label>
     <label class="check-card"><input id="cowForceRepro" type="checkbox"> <span><strong>Inclure dans le suivi repro même si elle est hors âge</strong><small>Utile pour une femelle mise à la reproduction plus tôt que le seuil général.</small></span></label>
@@ -212,8 +239,12 @@
   </form></dialog>
   <dialog id="bullDialog"><form id="bullForm"><div class="dialog-head"><h2 id="bullDialogTitle">Ajouter un taureau</h2><button type="button" id="cancelBullTop" class="iconbtn">✕</button></div><input type="hidden" id="bullEditId"><label>Nom<input id="bullName" required></label><label>Numéro<input id="bullNumber"></label><div class="dialog-actions"><button class="primary" type="submit" id="saveBullBtn">Ajouter</button><button class="ghost" type="button" id="cancelBullBottom">Annuler</button></div></form></dialog>
 
-  <script src="initial-data.js?v=152"></script>
+  <dialog id="locationDialog"><form id="locationForm"><div class="dialog-head"><h2 id="locationDialogTitle">Ajouter un lieu</h2><button type="button" id="closeLocationDialog" class="iconbtn">✕</button></div><input type="hidden" id="locationEditId"><label>Nom du lieu *<input id="locationName" required placeholder="Ex. Prairie Nord, Estive Aulon"></label><label>Type<select id="locationKind"><option value="parcelle">Parcelle / prairie</option><option value="estive">Estive</option><option value="batiment">Bâtiment</option><option value="autre">Autre</option></select></label><div class="dialog-actions"><button class="primary" type="submit">Enregistrer</button><button type="button" id="cancelLocationDialog" class="ghost">Annuler</button></div></form></dialog>
+
+  <dialog id="batchMoveDialog"><form id="batchMoveForm"><div class="dialog-head"><h2>Affecter des vaches à un lieu</h2><button type="button" id="closeBatchMove" class="iconbtn">✕</button></div><label>Lieu<select id="batchLocation" required></select></label><label>Date du déplacement<input id="batchMoveDate" type="date" required></label><div class="searchbox"><span>🔎</span><input id="batchCowSearch" placeholder="Chercher nom ou n° de travail" autocomplete="off"></div><div class="batch-tools"><button type="button" class="ghost compact" id="batchSelectAll">Tout cocher</button><button type="button" class="ghost compact" id="batchSelectNone">Aucun</button></div><div id="batchCowList" class="batch-cow-list"></div><button class="primary wide" type="submit">Affecter les vaches sélectionnées</button></form></dialog>
+
+  <script src="initial-data.js?v=160"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
-  <script src="app.js?v=152"></script>
+  <script src="app.js?v=160"></script>
 </body>
 </html>
