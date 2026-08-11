@@ -111,3 +111,6 @@ Nouveautés :
 Import estive :
 Le fichier est reconnu à partir des colonnes « Identifiant bovin » et/ou « Numéro travail ».
 Les animaux absents de la base active sont signalés comme non reconnus, mais aucun animal du troupeau n’est supprimé.
+
+
+V1.6.1 : correctif import CSV estive Excel (="..."), reconnaissance robuste par identifiant national, puis numéro de travail et nom + numéro de travail.
