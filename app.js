@@ -6,8 +6,8 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.6 : Supabase cloud / multi-utilisateurs + password recovery ---
-const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
+// --- Repro Bovine v1.4.7 : Supabase cloud / multi-utilisateurs + password recovery ---
+const SUPABASE_URL='https://uuyiazyofyuyxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
 const CLOUD_SESSION_KEY='reproBovineSupabaseSession';
@@ -613,7 +613,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  renderAll(); initCloudAuth();
- // v1.4.6: no service worker registration while Supabase authentication is being stabilized.
+ // v1.4.7: no service worker registration while Supabase authentication is being stabilized.
  maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
@@ -621,5 +621,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  window.addEventListener('online',()=>syncCloud());
 });
 
-// v1.4.6: purge legacy PWA workers/caches once, before next auth attempt.
+// v1.4.7: purge legacy PWA workers/caches once, before next auth attempt.
 if(!sessionStorage.getItem('reproV146Purge')){sessionStorage.setItem('reproV146Purge','1');clearLegacyPwaCaches();}
