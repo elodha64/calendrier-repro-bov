@@ -6,7 +6,7 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.4 : Supabase cloud / multi-utilisateurs + password recovery ---
+// --- Repro Bovine v1.4.5 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -54,7 +54,7 @@ async function cloudLogin(email,password){
 }
 async function testSupabaseNetwork(){
  try{
-   const r=await sbAuthFetch('/auth/v1/health',{method:'GET',headers:{'Content-Type':'text/plain'}});
+   const r=await sbAuthFetch('/auth/v1/settings',{method:'GET'});
    return {ok:r.ok,status:r.status,text:await r.text()};
  }catch(err){return {ok:false,status:0,text:err?.name==='AbortError'?'Délai dépassé':(err?.message||'Load failed')}}
 }
@@ -534,6 +534,16 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('#todayLabel').textContent=today().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
  $('#authForm').onsubmit=async e=>{e.preventDefault();const email=$('#authEmail').value.trim(),pw=$('#authPassword').value;$('#authError').textContent='Connexion…';try{await cloudLogin(email,pw);$('#authError').textContent='';hideAuthDialog();await syncCloud()}catch(err){$('#authError').textContent=err.message||'Connexion impossible'}};
  $('#recoverBtn').onclick=async()=>{const email=$('#authEmail').value.trim();if(!email){$('#authError').textContent='Indique ton adresse email.';return}try{await cloudRecover(email);$('#authError').textContent='Email de réinitialisation envoyé.'}catch(err){$('#authError').textContent=err.message||'Envoi impossible'}};
+ $('#testSupabaseBtn').onclick=async()=>{
+ const out=$('#supabaseTestResult');
+ if(out){out.textContent='⏳ Test en cours…';out.style.color=''}
+ const r=await testSupabaseNetwork();
+ if(r.ok){
+   if(out){out.textContent='✅ Supabase joignable (HTTP '+r.status+'). Tu peux ensuite essayer de te connecter.';out.style.color='#267344'}
+ }else{
+   if(out){out.textContent='❌ Supabase inaccessible : '+(r.text||('HTTP '+r.status))+'. Ne touche pas au mot de passe.';out.style.color='#b3263b'}
+ }
+};
  $('#passwordResetForm').onsubmit=async e=>{e.preventDefault();const p1=$('#newPassword').value,p2=$('#newPasswordConfirm').value,err=$('#passwordResetError');err.textContent='';if(p1.length<6){err.textContent='Choisis un mot de passe d’au moins 6 caractères.';return}if(p1!==p2){err.textContent='Les deux mots de passe ne sont pas identiques.';return}err.textContent='Enregistrement…';try{await updateRecoveredPassword(p1);err.textContent='';hidePasswordResetDialog();cloudSetStatus('☁️ Connexion…','sync');await syncCloud();alert('Mot de passe modifié. Tu es maintenant connectée à Repro Bovine.')}catch(ex){err.textContent=ex.message||'Modification impossible'}};
  $('#cloudLogoutBtn').onclick=cloudLogout; $('#cloudSyncBtn').onclick=()=>syncCloud();
  $('#changePasswordBtn').onclick=showChangePasswordDialog;
@@ -552,7 +562,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  renderAll(); initCloudAuth();
- // v1.4.4: no service worker registration while Supabase authentication is being stabilized.
+ // v1.4.5: no service worker registration while Supabase authentication is being stabilized.
  maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
@@ -560,13 +570,5 @@ document.addEventListener('DOMContentLoaded',()=>{
  window.addEventListener('online',()=>syncCloud());
 });
 
-// v1.4.4: purge legacy PWA workers/caches once, before next auth attempt.
-if(!sessionStorage.getItem('reproV144Purge')){sessionStorage.setItem('reproV144Purge','1');clearLegacyPwaCaches();}
-
-document.addEventListener('click',async e=>{
- if(e.target?.id==='testSupabaseBtn'){
-   const box=document.querySelector('#authError'); if(box)box.textContent='Test Supabase…';
-   const r=await testSupabaseNetwork();
-   if(box)box.textContent=r.ok?('✅ Supabase joignable (HTTP '+r.status+').'):('❌ Supabase inaccessible depuis ce navigateur : '+r.text);
- }
-});
+// v1.4.5: purge legacy PWA workers/caches once, before next auth attempt.
+if(!sessionStorage.getItem('reproV145Purge')){sessionStorage.setItem('reproV145Purge','1');clearLegacyPwaCaches();}
