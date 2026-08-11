@@ -6,7 +6,7 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.3 : Supabase cloud / multi-utilisateurs + password recovery ---
+// --- Repro Bovine v1.4.4 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -22,8 +22,12 @@ function getStoredCloudSession(){try{return JSON.parse(localStorage.getItem(CLOU
 function storeCloudSession(s){cloudSession=s||null;if(s)localStorage.setItem(CLOUD_SESSION_KEY,JSON.stringify(s));else localStorage.removeItem(CLOUD_SESSION_KEY);updateCloudUI()}
 function sessionExpired(s){if(!s?.expires_at)return false;return Date.now()/1000>s.expires_at-60}
 async function sbAuthFetch(path,opts={}){
- const headers={'apikey':SUPABASE_KEY,'Content-Type':'application/json',...(opts.headers||{})};
- return fetch(SUPABASE_URL+path,{...opts,headers});
+ const headers={'apikey':SUPABASE_KEY,'Content-Type':'application/json','Accept':'application/json',...(opts.headers||{})};
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),15000);
+ try{
+   return await fetch(SUPABASE_URL+path,{...opts,headers,mode:'cors',credentials:'omit',cache:'no-store',redirect:'follow',signal:controller.signal});
+ }finally{clearTimeout(timer)}
 }
 async function refreshCloudSession(){
  if(!cloudSession?.refresh_token)return false;
@@ -39,10 +43,28 @@ async function cloudFetch(path,opts={},retry=true){
  if(r.status===204)return null;const t=await r.text();return t?JSON.parse(t):null;
 }
 async function cloudLogin(email,password){
- const r=await sbAuthFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});
- if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.error_description||j.msg||j.message||'Identifiants incorrects')}
+ let r;
+ try{r=await sbAuthFetch('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})})}
+ catch(err){
+   const msg=err?.name==='AbortError'?'Supabase ne répond pas après 15 secondes.':'Connexion réseau vers Supabase impossible ('+(err?.message||'Load failed')+').';
+   throw new Error(msg+' Aucun mot de passe n’a été modifié.');
+ }
+ if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.error_description||j.msg||j.message||('Erreur Supabase '+r.status))}
  const s=await r.json();s.expires_at=Math.floor(Date.now()/1000)+(s.expires_in||3600);storeCloudSession(s);return s;
 }
+async function testSupabaseNetwork(){
+ try{
+   const r=await sbAuthFetch('/auth/v1/health',{method:'GET',headers:{'Content-Type':'text/plain'}});
+   return {ok:r.ok,status:r.status,text:await r.text()};
+ }catch(err){return {ok:false,status:0,text:err?.name==='AbortError'?'Délai dépassé':(err?.message||'Load failed')}}
+}
+async function clearLegacyPwaCaches(){
+ try{
+   if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()))}
+   if('caches' in window){const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('repro-bovine')).map(k=>caches.delete(k)))}
+ }catch(_){}
+}
+
 async function cloudLogout(){try{if(cloudSession?.access_token)await cloudFetch('/auth/v1/logout',{method:'POST'})}catch(_){}storeCloudSession(null);cloudReady=false;showAuthDialog()}
 async function cloudRecover(email){const redirect=location.origin+location.pathname;const r=await sbAuthFetch('/auth/v1/recover?redirect_to='+encodeURIComponent(redirect),{method:'POST',body:JSON.stringify({email})});if(!r.ok){let j={};try{j=await r.json()}catch(_){};throw new Error(j.msg||j.message||'Envoi impossible')}return true}
 function cloudUserEmail(){return cloudSession?.user?.email||''}
@@ -530,14 +552,21 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  renderAll(); initCloudAuth();
- if('serviceWorker'in navigator){
-   navigator.serviceWorker.register('./sw.js?v=142').then(async reg=>{
-     try{await reg.update()}catch(_){}
-     maybeDailyNotification();
-   }).catch(()=>{maybeDailyNotification()});
- } else maybeDailyNotification();
+ // v1.4.4: no service worker registration while Supabase authentication is being stabilized.
+ maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
  window.addEventListener('focus',()=>{maybeDailyNotification();syncCloud({silent:true})});
  window.addEventListener('online',()=>syncCloud());
+});
+
+// v1.4.4: purge legacy PWA workers/caches once, before next auth attempt.
+if(!sessionStorage.getItem('reproV144Purge')){sessionStorage.setItem('reproV144Purge','1');clearLegacyPwaCaches();}
+
+document.addEventListener('click',async e=>{
+ if(e.target?.id==='testSupabaseBtn'){
+   const box=document.querySelector('#authError'); if(box)box.textContent='Test Supabase…';
+   const r=await testSupabaseNetwork();
+   if(box)box.textContent=r.ok?('✅ Supabase joignable (HTTP '+r.status+').'):('❌ Supabase inaccessible depuis ce navigateur : '+r.text);
+ }
 });
