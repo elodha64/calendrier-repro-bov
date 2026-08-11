@@ -50,3 +50,6 @@ input[type="checkbox"],input[type="radio"]{width:auto;padding:0;margin:0;accent-
 .calendar-day-detail{padding:18px}
 .calendar-day-alerts{margin-top:14px}
 @media(max-width:540px){.home-filter-box{padding:10px}.day-open-hint{font-size:.7rem}.month-cell{min-width:0}}
+
+/* v1.5.2 - gestation estimée / incertitude / estive */
+.pregnancy-range{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pregnancy-range label{margin-top:8px}.compact-check{margin-top:10px}.gestation-info{margin-top:8px;padding:10px 12px;border-radius:12px;background:#faf5f8;border:1px solid var(--line)}@media(max-width:540px){.pregnancy-range{grid-template-columns:1fr}}

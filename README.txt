@@ -80,3 +80,11 @@ Notifications appli fermée : la base et la table push_subscriptions sont prête
 V1.4.2 : correctif Safari/iPhone du service worker. Les requêtes Supabase et autres requêtes cross-origin ne sont plus interceptées par le cache PWA. Correctif du flux de récupération de mot de passe.
 
 V1.4.3 : changement de mot de passe depuis Réglages > Cloud partagé pour un utilisateur connecté, sans email de récupération.
+
+V1.5.2 — Gestations estimées / dates incertaines / estive
+- Gestation confirmée sans saillie observée : saisie d'une durée précise ou d'une fourchette, en jours ou en mois.
+- L'application reconstruit une date centrale probable de fécondation et, si nécessaire, une marge d'incertitude.
+- Saillie/IA : possibilité de déclarer une date approximative avec une marge ± X jours.
+- Option "Vache en estive" : surveillance vêlage anticipée de 23 jours, sans modifier le terme théorique.
+- La fiche conserve le terme central, la fenêtre probable et explique la raison de l'alerte anticipée.
+- Ces données sont intégrées aux événements et synchronisées via Supabase sans nouvelle table SQL.

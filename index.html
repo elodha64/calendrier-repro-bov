@@ -6,16 +6,16 @@
   <meta name="theme-color" content="#7b3f61">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Repro Bovine v1.5.1</title>
-  <link rel="manifest" href="manifest.webmanifest?v=151">
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=151">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=151">
-  <link rel="stylesheet" href="styles.css?v=151">
+  <title>Repro Bovine v1.5.2</title>
+  <link rel="manifest" href="manifest.webmanifest?v=152">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=152">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=152">
+  <link rel="stylesheet" href="styles.css?v=152">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="brand"><img src="icon-192.png?v=151" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.5.1</span></div>
+      <div class="brand"><img src="icon-192.png?v=152" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.5.2</span></div>
       <div id="todayLabel" class="muted small"></div>
       <div id="cloudBadge" class="cloud-badge">☁️ Connexion…</div>
     </div>
@@ -114,7 +114,7 @@
 
   <dialog id="authDialog" class="auth-dialog">
     <form id="authForm">
-      <div class="auth-logo"><img src="icon-192.png?v=151" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=152" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
       <p class="muted">Connecte-toi avec ton adresse email et ton mot de passe Supabase.</p>
       <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
       <label>Mot de passe<input id="authPassword" type="password" autocomplete="current-password" required></label>
@@ -140,7 +140,7 @@
 
   <dialog id="passwordResetDialog" class="auth-dialog">
     <form id="passwordResetForm">
-      <div class="auth-logo"><img src="icon-192.png?v=151" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=152" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
       <p class="muted">Choisis ton nouveau mot de passe. Le lien reçu par email t’a déjà authentifiée temporairement.</p>
       <label>Nouveau mot de passe<input id="newPassword" type="password" autocomplete="new-password" minlength="6" required></label>
       <label>Confirmer le mot de passe<input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="6" required></label>
@@ -169,6 +169,24 @@
         <label>Mode<select id="serviceMode"><option value="natural">Saillie naturelle</option><option value="ai">Insémination artificielle</option></select></label>
         <label id="naturalBullWrap">Taureau<select id="naturalBull"></select></label>
         <label id="aiBullWrap" class="hidden">Taureau utilisé<input id="aiBull" placeholder="Nom ou numéro du taureau"></label>
+        <label class="check-card compact-check"><input id="serviceApprox" type="checkbox"> <span><strong>Date de saillie approximative</strong><small>À cocher si la date n’est pas certaine.</small></span></label>
+        <label id="serviceApproxWrap" class="hidden">Marge autour de cette date (± jours)<input id="serviceApproxDays" type="number" min="1" max="60" step="1" value="7"></label>
+      </div>
+      <div id="pregnancyFields" class="field-group hidden">
+        <strong>Estimation de gestation au diagnostic</strong>
+        <p class="muted small">Utile si la vache est confirmée pleine mais que la saillie n’a pas été observée.</p>
+        <label>Estimation<select id="pregEstimateType"><option value="none">Non renseignée</option><option value="exact">Durée précise</option><option value="range">Fourchette</option></select></label>
+        <div id="pregExactWrap" class="hidden">
+          <label>Durée estimée<input id="pregExactValue" type="number" min="1" step="0.5" placeholder="Ex. 80 ou 2.5"></label>
+        </div>
+        <div id="pregRangeWrap" class="hidden pregnancy-range">
+          <label>Minimum<input id="pregMinValue" type="number" min="1" step="0.5" placeholder="Ex. 2.5"></label>
+          <label>Maximum<input id="pregMaxValue" type="number" min="1" step="0.5" placeholder="Ex. 3"></label>
+        </div>
+        <label>Unité<select id="pregEstimateUnit"><option value="months">Mois</option><option value="days">Jours</option></select></label>
+      </div>
+      <div id="pregnancyContextFields" class="field-group hidden">
+        <label class="check-card compact-check"><input id="eventEstive" type="checkbox"> <span><strong>Vache en estive</strong><small>Ajoute une surveillance vêlage anticipée de 23 jours sans modifier le terme théorique.</small></span></label>
       </div>
       <label>Note (facultatif)<textarea id="eventNote" rows="2" placeholder="Observation…"></textarea></label>
       <div class="dialog-actions"><button type="submit" class="primary">Enregistrer</button><button type="button" id="cancelEventBottom" class="ghost">Annuler</button></div>
@@ -194,8 +212,8 @@
   </form></dialog>
   <dialog id="bullDialog"><form id="bullForm"><div class="dialog-head"><h2 id="bullDialogTitle">Ajouter un taureau</h2><button type="button" id="cancelBullTop" class="iconbtn">✕</button></div><input type="hidden" id="bullEditId"><label>Nom<input id="bullName" required></label><label>Numéro<input id="bullNumber"></label><div class="dialog-actions"><button class="primary" type="submit" id="saveBullBtn">Ajouter</button><button class="ghost" type="button" id="cancelBullBottom">Annuler</button></div></form></dialog>
 
-  <script src="initial-data.js?v=151"></script>
+  <script src="initial-data.js?v=152"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
-  <script src="app.js?v=151"></script>
+  <script src="app.js?v=152"></script>
 </body>
 </html>
