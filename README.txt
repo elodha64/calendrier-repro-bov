@@ -73,3 +73,6 @@ V1.3.3 : ajout d’un âge minimum paramétrable pour le suivi reproduction, lis
 IMPORTANT : la clé intégrée est une clé Supabase publishable (publique), adaptée à une application web protégée par RLS. Ne jamais remplacer par une clé secret/service_role.
 
 Notifications appli fermée : la base et la table push_subscriptions sont prêtes côté Supabase, et le service worker sait recevoir un push. L’envoi serveur planifié (VAPID + Edge Function/cron) reste l’étape suivante avant que l’iPhone puisse recevoir une alerte à heure garantie lorsque l’application est fermée.
+
+
+V1.4.2 : correctif Safari/iPhone du service worker. Les requêtes Supabase et autres requêtes cross-origin ne sont plus interceptées par le cache PWA. Correctif du flux de récupération de mot de passe.

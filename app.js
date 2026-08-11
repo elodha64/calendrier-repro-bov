@@ -6,7 +6,7 @@ const HERD_DEFAULTS={minFemaleAgeMonths:12};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
 
-// --- Repro Bovine v1.4.1 : Supabase cloud / multi-utilisateurs + password recovery ---
+// --- Repro Bovine v1.4.2 : Supabase cloud / multi-utilisateurs + password recovery ---
 const SUPABASE_URL='https://uuyiazyofyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
@@ -62,11 +62,24 @@ function recoveryParams(){
  const hash=new URLSearchParams((location.hash||'').replace(/^#/,''));
  const search=new URLSearchParams(location.search||'');
  const get=k=>hash.get(k)||search.get(k);
- return {type:get('type'),access_token:get('access_token'),refresh_token:get('refresh_token'),expires_in:Number(get('expires_in')||3600),error:get('error_description')||get('error')};
+ return {
+   type:get('type'),
+   access_token:get('access_token'),
+   refresh_token:get('refresh_token'),
+   expires_in:Number(get('expires_in')||3600),
+   error:get('error_description')||get('error'),
+   error_code:get('error_code'),
+   code:get('code')
+ };
 }
 async function handlePasswordRecoveryRedirect(){
  const p=recoveryParams();
  if(p.error){$('#authError').textContent=decodeURIComponent(p.error);showAuthDialog();return false}
+ if(p.type==='recovery' && !p.access_token){
+   $('#authError').textContent='Le lien de récupération est incomplet ou a expiré. Demande un nouveau lien.';
+   showAuthDialog();
+   return false;
+ }
  if(p.type!=='recovery' || !p.access_token)return false;
  const s={access_token:p.access_token,refresh_token:p.refresh_token||'',expires_in:p.expires_in,expires_at:Math.floor(Date.now()/1000)+p.expires_in,token_type:'bearer'};
  storeCloudSession(s);
@@ -498,7 +511,12 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('#calendarMode button').forEach(b=>b.onclick=()=>{$$('#calendarMode button').forEach(x=>x.classList.remove('active'));b.classList.add('active');calMode=b.dataset.mode;renderCalendar()});
  $('#calPrev').onclick=()=>{calDate=addDays(calDate,calMode==='day'?-1:calMode==='week'?-7:-30);renderCalendar()}; $('#calNext').onclick=()=>{calDate=addDays(calDate,calMode==='day'?1:calMode==='week'?7:30);renderCalendar()};
  renderAll(); initCloudAuth();
- if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').then(()=>{maybeDailyNotification()}).catch(()=>{}); else maybeDailyNotification();
+ if('serviceWorker'in navigator){
+   navigator.serviceWorker.register('./sw.js?v=142').then(async reg=>{
+     try{await reg.update()}catch(_){}
+     maybeDailyNotification();
+   }).catch(()=>{maybeDailyNotification()});
+ } else maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
  window.addEventListener('focus',()=>{maybeDailyNotification();syncCloud({silent:true})});
