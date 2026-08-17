@@ -6,16 +6,16 @@
   <meta name="theme-color" content="#7b3f61">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>Repro Bovine v1.6.1</title>
+  <title>Repro Bovine v1.7.5</title>
   <link rel="manifest" href="manifest.webmanifest?v=160">
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=160">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=170">
   <link rel="apple-touch-icon" href="apple-touch-icon.png?v=160">
-  <link rel="stylesheet" href="styles.css?v=160">
+  <link rel="stylesheet" href="styles.css?v=172">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="brand"><img src="icon-192.png?v=160" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.6.1</span></div>
+      <div class="brand"><img src="icon-192.png?v=170" class="brand-icon" alt=""> Repro Bovine <span class="version-badge">v1.7.5</span></div>
       <div id="todayLabel" class="muted small"></div>
       <div id="cloudBadge" class="cloud-badge">☁️ Connexion…</div>
     </div>
@@ -34,6 +34,7 @@
         <div class="home-filter-chips">
           <button type="button" class="chip active" data-home-filter="heat">🔁 Retours en chaleur</button>
           <button type="button" class="chip active" data-home-filter="gestation">🍼 Gestations / vêlages</button>
+          <button type="button" class="chip active" data-home-filter="abortion">⚠️ Post-avortement</button>
           <button type="button" class="chip" data-home-filter="postpartum">👀 Sans chaleur post-vêlage</button>
         </div>
         <div class="muted small">Les vaches sans chaleur enregistrée depuis le dernier vêlage sont masquées par défaut. Active ce filtre si tu veux les revoir.</div>
@@ -50,6 +51,7 @@
         <div class="calendar-filter-chips">
           <button type="button" class="chip active" data-cal-filter="heat">🔁 Retours en chaleur</button>
           <button type="button" class="chip active" data-cal-filter="gestation">🍼 Gestations / vêlages</button>
+          <button type="button" class="chip active" data-cal-filter="abortion">⚠️ Post-avortement</button>
           <button type="button" class="chip" data-cal-filter="postpartum">👀 Sans chaleur post-vêlage</button>
         </div>
         <div class="muted small">Les vaches sans chaleur enregistrée depuis le dernier vêlage sont masquées par défaut du calendrier.</div>
@@ -60,7 +62,7 @@
 
     <section id="view-cows" class="view">
       <div class="section-head"><div class="searchbox cow-search-main"><span>🔎</span><input id="cowSearch" placeholder="Nom ou numéro de travail" autocomplete="off"></div><button id="addCowBtn" class="primary compact">＋ Vache</button></div>
-      <div class="chips"><button class="chip active" data-cow-filter="all">Toutes</button><button class="chip" data-cow-filter="pregnant">Pleines</button><button class="chip" data-cow-filter="watch">À surveiller</button><button class="chip" data-cow-filter="postpartum">Post-vêlage</button><button class="chip" data-cow-filter="underage">Hors âge</button><button class="chip" data-cow-filter="excluded">Exclues</button><button class="chip" data-cow-filter="inactive">Sorties</button></div>
+      <div class="chips"><button class="chip active" data-cow-filter="all">Toutes</button><button class="chip" data-cow-filter="pregnant">Pleines</button><button class="chip" data-cow-filter="watch">À surveiller</button><button class="chip" data-cow-filter="postpartum">Post-vêlage</button><button class="chip" data-cow-filter="postabortion">Post-avortement</button><button class="chip" data-cow-filter="underage">Hors âge</button><button class="chip" data-cow-filter="excluded">Exclues</button><button class="chip" data-cow-filter="inactive">Sorties</button></div>
       <div class="cow-sort-row"><label for="cowSort">Trier par</label><select id="cowSort"><option value="priority">Priorité chronologique</option><option value="calving">Prochaine mise bas présumée</option><option value="lastcalving">Dernier vêlage (plus ancien d’abord)</option><option value="work">N° de travail</option><option value="name">Nom</option></select></div>
       <div id="cowList" class="cards"></div>
     </section>
@@ -140,7 +142,7 @@
 
   <dialog id="authDialog" class="auth-dialog">
     <form id="authForm">
-      <div class="auth-logo"><img src="icon-192.png?v=160" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=170" alt=""><div><h2>Repro Bovine</h2><p>Troupeau partagé</p></div></div>
       <p class="muted">Connecte-toi avec ton adresse email et ton mot de passe Supabase.</p>
       <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
       <label>Mot de passe<input id="authPassword" type="password" autocomplete="current-password" required></label>
@@ -166,7 +168,7 @@
 
   <dialog id="passwordResetDialog" class="auth-dialog">
     <form id="passwordResetForm">
-      <div class="auth-logo"><img src="icon-192.png?v=160" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
+      <div class="auth-logo"><img src="icon-192.png?v=170" alt=""><div><h2>Nouveau mot de passe</h2><p>Repro Bovine</p></div></div>
       <p class="muted">Choisis ton nouveau mot de passe. Le lien reçu par email t’a déjà authentifiée temporairement.</p>
       <label>Nouveau mot de passe<input id="newPassword" type="password" autocomplete="new-password" minlength="6" required></label>
       <label>Confirmer le mot de passe<input id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="6" required></label>
@@ -189,6 +191,7 @@
         <option value="pregnant">Gestante confirmée</option>
         <option value="not_pregnant">Diagnostic négatif</option>
         <option value="calving">Vêlage</option>
+        <option value="abortion">Avortement</option>
       </select></label>
       <label>Date<input id="eventDate" type="date" required></label>
       <div id="serviceFields" class="field-group">
@@ -210,6 +213,14 @@
           <label>Maximum<input id="pregMaxValue" type="number" min="1" step="0.5" placeholder="Ex. 3"></label>
         </div>
         <label>Unité<select id="pregEstimateUnit"><option value="months">Mois</option><option value="days">Jours</option></select></label>
+      </div>
+      <div id="abortionFields" class="field-group hidden">
+        <strong>Stade estimé de l’avortement</strong>
+        <p class="muted small">Tu peux renseigner une durée précise ou une fourchette. L’avortement clôt immédiatement la gestation en cours et remet le cycle repro à zéro.</p>
+        <label>Estimation<select id="abortionStageType"><option value="none">Non renseignée</option><option value="exact">Durée précise</option><option value="range">Fourchette</option></select></label>
+        <div id="abortionExactWrap" class="hidden"><label>Stade estimé<input id="abortionStageExact" type="number" min="1" step="0.5" placeholder="Ex. 120 ou 4"></label></div>
+        <div id="abortionRangeWrap" class="hidden pregnancy-range"><label>Minimum<input id="abortionStageMin" type="number" min="1" step="0.5" placeholder="Ex. 3.5"></label><label>Maximum<input id="abortionStageMax" type="number" min="1" step="0.5" placeholder="Ex. 4"></label></div>
+        <label>Unité<select id="abortionStageUnit"><option value="months">Mois</option><option value="days">Jours</option></select></label>
       </div>
       <div id="pregnancyContextFields" class="field-group hidden">
         <label class="check-card compact-check"><input id="eventEstive" type="checkbox"> <span><strong>Vache en estive</strong><small>Ajoute une surveillance vêlage anticipée de 23 jours sans modifier le terme théorique.</small></span></label>
@@ -245,6 +256,6 @@
 
   <script src="initial-data.js?v=160"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2'"></script>
-  <script src="app.js?v=160"></script>
+  <script src="app.js?v=174"></script>
 </body>
 </html>

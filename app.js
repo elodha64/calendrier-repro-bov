@@ -1,18 +1,20 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const STORE='reproBovineV1';
-const DEFAULTS={heatWatchStart:18,heatWatchEnd:24,presumedPregnant:25,pregCheck:35,preCalving:285,term:295,postpartumStart:30,postpartumWarn:45,postpartumLate:60};
+const DEFAULTS={heatWatchStart:18,heatWatchEnd:24,presumedPregnant:25,pregCheck:35,preCalving:285,term:295,primiparaAdvance:20,estiveAdvance:23,postpartumStart:30,postpartumWarn:45,postpartumLate:60};
 const NOTIF_DEFAULTS={enabled:false,time:'07:00',heatReturn:true,pregCheck:true,precalving:true,term:true,postpartum:true};
 const HERD_DEFAULTS={minFemaleAgeMonths:12};
 const LOCATION_DEFAULTS={season:new Date().getFullYear(),lastEstiveImport:'',lastEstiveSource:''};
 let state=loadState();
 let calMode='week', calDate=today(), cowFilter='all';
-let calendarFilters=(()=>{try{return {...{heat:true,gestation:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-calendar-filters')||'{}')}}catch(e){return {heat:true,gestation:true,postpartum:false}}})();
-let homeFilters=(()=>{try{return {...{heat:true,gestation:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-home-filters')||'{}')}}catch(e){return {heat:true,gestation:true,postpartum:false}}})();
+let calendarFilters=(()=>{try{return {...{heat:true,gestation:true,abortion:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-calendar-filters')||'{}')}}catch(e){return {heat:true,gestation:true,abortion:true,postpartum:false}}})();
+let homeFilters=(()=>{try{return {...{heat:true,gestation:true,abortion:true,postpartum:false},...JSON.parse(localStorage.getItem('repro-home-filters')||'{}')}}catch(e){return {heat:true,gestation:true,abortion:true,postpartum:false}}})();
 
-// --- Repro Bovine v1.6.0 : Supabase + priorité chronologique + filtres calendrier ---
+// --- Repro Bovine v1.7.3 : Supabase + notifications Web Push ---
 const SUPABASE_URL='https://uuyiazyofyyuxwiolizr.supabase.co';
 const SUPABASE_KEY='sb_publishable_FtQAhsVfoPbyG1hD3lT1VQ_LhgiW8Hl';
 const HOUSEHOLD_ID='5826e26b-eb84-460f-bb8e-7a2194e905b2';
+const VAPID_PUBLIC_KEY='BGSYvnHnHsVwVYwF-WuLDRYy8G-eGj1e6VVkL2nHvcmpCTZ0DE-x134IVJQxnrkcyD1OZNtAt7xwy-1l_ubCXw0';
+const PUSH_FUNCTION_URL=SUPABASE_URL+'/functions/v1/repro-notifications';
 const CLOUD_SESSION_KEY='reproBovineSupabaseSession';
 const CLOUD_SHADOW_KEY='reproBovineCloudShadowV14';
 let cloudSession=null, cloudSyncTimer=null, cloudSyncing=false, cloudReady=false;
@@ -97,9 +99,38 @@ async function testSupabaseNetwork(){
 }
 async function clearLegacyPwaCaches(){
  try{
-   if('serviceWorker' in navigator){const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()))}
-   if('caches' in window){const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('repro-bovine')).map(k=>caches.delete(k)))}
+   if('caches' in window){const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('repro-bovine')&&k!=='repro-bovine-v171').map(k=>caches.delete(k)))}
  }catch(_){}
+}
+function urlBase64ToUint8Array(base64String){const padding='='.repeat((4-base64String.length%4)%4),base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/'),raw=atob(base64);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
+async function registerPushServiceWorker(){
+ if(!('serviceWorker' in navigator))throw new Error('Service worker non pris en charge sur cet appareil.');
+ const reg=await navigator.serviceWorker.register('./sw.js?v=171',{scope:'./'});
+ await navigator.serviceWorker.ready;return reg;
+}
+async function savePushSubscription(sub){
+ if(!cloudSession?.user?.id)throw new Error('Connecte-toi d’abord au cloud partagé.');
+ const j=sub.toJSON();
+ await cloudFetch('/rest/v1/push_subscriptions?on_conflict=user_id,endpoint',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({household_id:HOUSEHOLD_ID,user_id:cloudSession.user.id,endpoint:j.endpoint,p256dh:j.keys?.p256dh||null,auth_key:j.keys?.auth||null,user_agent:navigator.userAgent,enabled:true})});
+}
+async function subscribePushDevice(){
+ if(!cloudSession)throw new Error('Connecte-toi d’abord à Repro Bovine.');
+ if(!('Notification' in window)||!('PushManager' in window))throw new Error('Le Web Push n’est pas disponible ici. Sur iPhone, installe Repro Bovine sur l’écran d’accueil.');
+ let perm=Notification.permission;if(perm!=='granted')perm=await Notification.requestPermission();if(perm!=='granted')throw new Error('Autorisation de notifications refusée.');
+ const reg=await registerPushServiceWorker();
+ let sub=await reg.pushManager.getSubscription();
+ if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+ await savePushSubscription(sub);return sub;
+}
+async function disablePushDevice(){
+ try{const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();if(sub){if(cloudSession?.user?.id){await cloudFetch('/rest/v1/push_subscriptions?user_id=eq.'+encodeURIComponent(cloudSession.user.id)+'&endpoint=eq.'+encodeURIComponent(sub.endpoint),{method:'PATCH',body:JSON.stringify({enabled:false})})}await sub.unsubscribe()}}catch(e){console.warn(e)}updateNotifStatus();
+}
+async function testServerPush(){
+ if(!cloudSession?.access_token)throw new Error('Connecte-toi au cloud partagé.');
+ const r=await fetch(PUSH_FUNCTION_URL+'?mode=test',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+cloudSession.access_token,'Content-Type':'application/json'},body:'{}'});
+ const t=await r.text();
+ if(!r.ok)throw new Error(t||('HTTP '+r.status));
+ try{return t?JSON.parse(t):{ok:true}}catch(_){return {ok:true,raw:t}}
 }
 
 async function cloudLogout(){try{await getSupabaseClient().auth.signOut()}catch(_){}storeCloudSession(null);cloudReady=false;showAuthDialog()}
@@ -180,7 +211,7 @@ function cowNational(c){return c.id&&!String(c.id).startsWith('manual-')&&!Strin
 function cowPayload(c){return {id:c.cloudId||undefined,household_id:HOUSEHOLD_ID,work_number:c.workNumber||null,national_number:cowNational(c),name:c.name||null,birth_date:c.birthDate||null,sex:'F',breed:c.breed||null,last_calving_date:c.lastCalving||null,calving_rank:Number(c.calvingCount)||0,active:c.active!==false,exit_date:c.exitDate||null,exit_reason:c.exitReason||null,repro_override:c.reproOverride||null,manual_created:c.source==='manual',current_location_id:c.currentLocationCloudId||locationById(c.currentLocationId)?.cloudId||null,current_location_name:c.currentLocationName||null,estive_active:!!c.estiveActive,estive_season:c.estiveSeason||null,source_updated_at:new Date().toISOString()}}
 function bullPayload(b){return {id:b.cloudId||undefined,household_id:HOUSEHOLD_ID,name:b.name||b.workNumber||'Sans nom',number:b.workNumber||null,breed:b.breed||null,bull_type:'natural',active:!!b.activeBreeder,notes:b.notes||null,manual_modified:!!b.manualEdit}}
 const EVENT_META_MARK='[[REPRO_META_V1]]';
-function eventMeta(e){const m={};if(Number(e.dateUncertaintyDays)>0)m.dateUncertaintyDays=Number(e.dateUncertaintyDays);if(Number(e.gestAgeMinDays)>0)m.gestAgeMinDays=Number(e.gestAgeMinDays);if(Number(e.gestAgeMaxDays)>0)m.gestAgeMaxDays=Number(e.gestAgeMaxDays);if(e.estive)m.estive=true;return m}
+function eventMeta(e){const m={};if(Number(e.dateUncertaintyDays)>0)m.dateUncertaintyDays=Number(e.dateUncertaintyDays);if(Number(e.gestAgeMinDays)>0)m.gestAgeMinDays=Number(e.gestAgeMinDays);if(Number(e.gestAgeMaxDays)>0)m.gestAgeMaxDays=Number(e.gestAgeMaxDays);if(Number(e.abortionStageMinDays)>0)m.abortionStageMinDays=Number(e.abortionStageMinDays);if(Number(e.abortionStageMaxDays)>0)m.abortionStageMaxDays=Number(e.abortionStageMaxDays);if(e.abortionStageLabel)m.abortionStageLabel=e.abortionStageLabel;if(e.estive)m.estive=true;return m}
 function serializeEventNotes(e){const note=(e.note||'').trim(),m=eventMeta(e);return Object.keys(m).length?`${note}${note?'\n':''}${EVENT_META_MARK}${JSON.stringify(m)}`:note||null}
 function parseEventNotes(raw){const txt=String(raw||''),i=txt.lastIndexOf(EVENT_META_MARK);if(i<0)return {note:txt};let meta={};try{meta=JSON.parse(txt.slice(i+EVENT_META_MARK.length))||{}}catch(_){}return {note:txt.slice(0,i).trim(),...meta}}
 function eventPayload(c,e){let bullId=null;if(e.mode==='natural'&&e.bull){const b=state.males.find(x=>x.cloudId&&(x.name===e.bull||x.workNumber===e.bull));bullId=b?.cloudId||null}return {id:e.cloudId||undefined,household_id:HOUSEHOLD_ID,cow_id:c.cloudId,event_type:e.type,event_date:e.date,breeding_type:e.type==='service'?(e.mode||'natural'):null,bull_id:bullId,bull_name:e.type==='service'?(e.bull||null):null,notes:serializeEventNotes(e),created_by:cloudSession?.user?.id||null}}
@@ -197,8 +228,8 @@ function currentCloudShadow(){
 function loadCloudShadow(){try{return JSON.parse(localStorage.getItem(CLOUD_SHADOW_KEY)||'null')}catch(_){return null}}
 function saveCloudShadow(){localStorage.setItem(CLOUD_SHADOW_KEY,JSON.stringify(currentCloudShadow()))}
 function sameJSON(a,b){return JSON.stringify(a)===JSON.stringify(b)}
-function cloudSettingsPayload(){return {household_id:HOUSEHOLD_ID,min_female_age_months:Number(state.herdSettings?.minFemaleAgeMonths)||0,heat_return_days:Number(state.settings?.heatWatchEnd)||24,presumed_pregnant_days:Number(state.settings?.presumedPregnant)||25,pregnancy_check_days:Number(state.settings?.pregCheck)||35,precalving_days:Number(state.settings?.preCalving)||285,term_days:Number(state.settings?.term)||295,postpartum_watch_days:Number(state.settings?.postpartumStart)||30,notification_time:(state.notifications?.time||'07:00')+':00',notif_heat_return:state.notifications?.heatReturn!==false,notif_preg_check:state.notifications?.pregCheck!==false,notif_precalving:state.notifications?.precalving!==false,notif_term:state.notifications?.term!==false,notif_postpartum:state.notifications?.postpartum!==false}}
-function applyCloudSettings(r){if(!r)return;state.herdSettings={...state.herdSettings,minFemaleAgeMonths:Number(r.min_female_age_months??state.herdSettings.minFemaleAgeMonths)};state.settings={...state.settings,heatWatchEnd:Number(r.heat_return_days??state.settings.heatWatchEnd),presumedPregnant:Number(r.presumed_pregnant_days??state.settings.presumedPregnant),pregCheck:Number(r.pregnancy_check_days??state.settings.pregCheck),preCalving:Number(r.precalving_days??state.settings.preCalving),term:Number(r.term_days??state.settings.term),postpartumStart:Number(r.postpartum_watch_days??state.settings.postpartumStart)};state.notifications={...state.notifications,time:String(r.notification_time||state.notifications.time||'07:00').slice(0,5),heatReturn:r.notif_heat_return!==false,pregCheck:r.notif_preg_check!==false,precalving:r.notif_precalving!==false,term:r.notif_term!==false,postpartum:r.notif_postpartum!==false}}
+function cloudSettingsPayload(){return {household_id:HOUSEHOLD_ID,min_female_age_months:Number(state.herdSettings?.minFemaleAgeMonths)||0,heat_return_days:Number(state.settings?.heatWatchEnd)||24,presumed_pregnant_days:Number(state.settings?.presumedPregnant)||25,pregnancy_check_days:Number(state.settings?.pregCheck)||35,precalving_days:Number(state.settings?.preCalving)||285,term_days:Number(state.settings?.term)||295,postpartum_watch_days:Number(state.settings?.postpartumStart)||30,notification_time:(state.notifications?.time||'07:00')+':00',notif_heat_return:state.notifications?.heatReturn!==false,notif_preg_check:state.notifications?.pregCheck!==false,notif_precalving:state.notifications?.precalving!==false,notif_term:state.notifications?.term!==false,notif_postpartum:state.notifications?.postpartum!==false,notif_enabled:state.notifications?.enabled===true,heat_watch_start_days:Number(state.settings?.heatWatchStart)||18,postpartum_warn_days:Number(state.settings?.postpartumWarn)||45,postpartum_late_days:Number(state.settings?.postpartumLate)||60,primipara_advance_days:Number(state.settings?.primiparaAdvance)||0,estive_advance_days:Number(state.settings?.estiveAdvance)||0}}
+function applyCloudSettings(r){if(!r)return;state.herdSettings={...state.herdSettings,minFemaleAgeMonths:Number(r.min_female_age_months??state.herdSettings.minFemaleAgeMonths)};state.settings={...state.settings,heatWatchEnd:Number(r.heat_return_days??state.settings.heatWatchEnd),presumedPregnant:Number(r.presumed_pregnant_days??state.settings.presumedPregnant),pregCheck:Number(r.pregnancy_check_days??state.settings.pregCheck),preCalving:Number(r.precalving_days??state.settings.preCalving),term:Number(r.term_days??state.settings.term),postpartumStart:Number(r.postpartum_watch_days??state.settings.postpartumStart),heatWatchStart:Number(r.heat_watch_start_days??state.settings.heatWatchStart),postpartumWarn:Number(r.postpartum_warn_days??state.settings.postpartumWarn),postpartumLate:Number(r.postpartum_late_days??state.settings.postpartumLate),primiparaAdvance:Number(r.primipara_advance_days??state.settings.primiparaAdvance),estiveAdvance:Number(r.estive_advance_days??state.settings.estiveAdvance)};state.notifications={...state.notifications,enabled:r.notif_enabled===true,time:String(r.notification_time||state.notifications.time||'07:00').slice(0,5),heatReturn:r.notif_heat_return!==false,pregCheck:r.notif_preg_check!==false,precalving:r.notif_precalving!==false,term:r.notif_term!==false,postpartum:r.notif_postpartum!==false}}
 
 async function insertNewCows(list){if(!list.length)return;const payload=list.map(c=>{const p=cowPayload(c);delete p.id;return p});const rows=await cloudFetch('/rest/v1/cows',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)});for(const c of list){const nat=cowNational(c);const r=rows.find(x=>(nat&&x.national_number===nat)||(!nat&&x.work_number===c.workNumber&&String(x.birth_date||'')===String(c.birthDate||'')))||rows.shift();if(r)c.cloudId=r.id}}
 async function upsertCows(list){if(!list.length)return;await cloudFetch('/rest/v1/cows?on_conflict=id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(list.map(c=>cowPayload(c)))})}
@@ -207,6 +238,37 @@ async function upsertBulls(list){if(!list.length)return;await cloudFetch('/rest/
 async function insertNewEvents(items){if(!items.length)return;const payload=items.filter(x=>x.c.cloudId).map(x=>eventPayload(x.c,x.e));payload.forEach(p=>delete p.id);if(!payload.length)return;const rows=await cloudFetch('/rest/v1/repro_events',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)});let i=0;for(const x of items.filter(x=>x.c.cloudId)){const r=rows[i++];if(r)x.e.cloudId=r.id}}
 async function upsertEvents(items){if(!items.length)return;await cloudFetch('/rest/v1/repro_events?on_conflict=id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(items.map(x=>eventPayload(x.c,x.e)))})}
 async function upsertCloudSettings(){await cloudFetch('/rest/v1/app_settings?on_conflict=household_id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(cloudSettingsPayload())})}
+
+async function persistNotificationTimeNow(value){
+ const time=String(value||'').trim();
+ if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(time))return;
+ state.notifications={...NOTIF_DEFAULTS,...state.notifications,time};
+ localStorage.setItem(STORE,JSON.stringify(state));
+ const status=()=>document.getElementById('notifTimeSaveStatus');
+ if(status())status().textContent=`Enregistrement de ${time}…`;
+ try{
+   if(cloudSession&&navigator.onLine){
+     const rows=await cloudFetch(`/rest/v1/app_settings?household_id=eq.${HOUSEHOLD_ID}`,{
+       method:'PATCH',
+       headers:{'Prefer':'return=representation'},
+       body:JSON.stringify({notification_time:time+':00'})
+     });
+     const saved=String(rows?.[0]?.notification_time||time).slice(0,5);
+     state.notifications.time=saved;
+     localStorage.setItem(STORE,JSON.stringify(state));
+     const sh=loadCloudShadow();
+     if(sh){sh.settings={...(sh.settings||{}),notification_time:saved+':00'};localStorage.setItem(CLOUD_SHADOW_KEY,JSON.stringify(sh))}
+     if(status())status().textContent=`✅ Heure serveur enregistrée : ${saved}`;
+   }else{
+     if(status())status().textContent=`📱 Heure enregistrée sur cet appareil : ${time} • synchro cloud en attente`;
+     scheduleCloudSync();
+   }
+ }catch(err){
+   console.error('Notification time save',err);
+   if(status())status().textContent=`⚠️ ${time} enregistré localement • synchro cloud en attente`;
+   scheduleCloudSync();
+ }
+}
 
 
 function locationPayload(l){return {id:l.cloudId||undefined,household_id:HOUSEHOLD_ID,name:l.name,kind:l.kind||'parcelle',active:l.active!==false}}
@@ -324,10 +386,11 @@ function events(c){return (c.events||[]).slice().sort((a,b)=>a.date.localeCompar
 function latest(c,type){return events(c).filter(e=>!type||e.type===type).at(-1)||null}
 function latestAfter(c,type,date){return events(c).filter(e=>e.type===type&&e.date>date).at(-1)||null}
 function lastCalving(c){const e=latest(c,'calving'); return e?.date||c.lastCalving||''}
+function lastAbortion(c){return latest(c,'abortion')}
 function lastService(c){return latest(c,'service')}
 function daysFromEstimate(value,unit){const n=Number(value);if(!Number.isFinite(n)||n<=0)return 0;return unit==='months'?Math.round(n*30.44):Math.round(n)}
 function pregnancyBasis(c){
-  const ev=events(c), closers=new Set(['heat','not_pregnant','calving']);
+  const ev=events(c), closers=new Set(['heat','not_pregnant','calving','abortion']);
   const svc=[...ev].reverse().find(e=>e.type==='service'&&!ev.some(x=>x.date>e.date&&closers.has(x.type)));
   const preg=[...ev].reverse().find(e=>e.type==='pregnant'&&!ev.some(x=>x.date>e.date&&closers.has(x.type)));
   if(svc){
@@ -343,7 +406,10 @@ function pregnancyBasis(c){
 }
 function nextCalvingDate(c){const b=pregnancyBasis(c);return b?.conception?dateISO(addDays(b.conception,state.settings.term)):''}
 function pregnancyWindow(b){if(!b?.conception)return null;const term=dateISO(addDays(b.conception,state.settings.term)),u=Math.max(0,Number(b.uncertaintyDays)||0);return {term,earliest:dateISO(addDays(term,-u)),latest:dateISO(addDays(term,u)),uncertainty:u}}
-function pregnancyReason(b){const parts=[];if(b?.source==='scan')parts.push('date reconstruite à partir du diagnostic de gestation');if(b?.uncertaintyDays)parts.push(`incertitude ±${b.uncertaintyDays} j`);if(b?.estive)parts.push('estive : surveillance avancée de 23 j');return parts.join(' • ')}
+function isPrimiparaPregnancy(c){return Number(c?.calvingCount||0)===0&&!lastCalving(c)}
+function calvingCategoryAdvance(c,b){const prim=isPrimiparaPregnancy(c)?Math.max(0,Number(state.settings?.primiparaAdvance)||0):0;const est=b?.estive?Math.max(0,Number(state.settings?.estiveAdvance)||0):0;return {days:Math.max(prim,est),prim,est};}
+function calvingAdvanceReason(c,b){const a=calvingCategoryAdvance(c,b),parts=[];if(a.prim)parts.push(`primipare +${a.prim} j`);if(a.est)parts.push(`estive +${a.est} j`);if(a.prim&&a.est)parts.push(`avance retenue : ${a.days} j (non cumulée)`);return parts.join(' • ')}
+function pregnancyReason(b,c){const parts=[];if(b?.source==='scan')parts.push('date reconstruite à partir du diagnostic de gestation');if(b?.uncertaintyDays)parts.push(`incertitude ±${b.uncertaintyDays} j`);const why=calvingAdvanceReason(c,b);if(why)parts.push(why);return parts.join(' • ')}
 
 function reproductiveStatus(c){
   const b=pregnancyBasis(c),calv=lastCalving(c);
@@ -352,6 +418,8 @@ function reproductiveStatus(c){
     return {key:'pregnant',label:'Pleine confirmée',days:null,base:null,cls:'ok'};
   }
   if(b?.source==='service'&&b.conception){const days=Math.max(0,diffDays(dateISO(today()),b.conception));if(days>=state.settings.presumedPregnant)return {key:'presumed',label:`Supposée pleine • ${b.uncertaintyDays?'~':''}${days} j`,days,base:b.conception,cls:'warn'};return {key:'watch',label:`Après ${b.sourceEvent.mode==='ai'?'IA':'saillie'} • J+${days}`,days,base:b.conception,cls:'neutral'}}
+  const abort=lastAbortion(c);
+  if(abort){const restarted=events(c).some(e=>e.date>abort.date&&['heat','service','pregnant','calving'].includes(e.type));if(!restarted){const days=Math.max(0,diffDays(dateISO(today()),abort.date));return {key:'postabortion',label:`Post-avortement • J+${days}`,days,base:abort.date,cls:days>=state.settings.postpartumLate?'danger':days>=state.settings.postpartumStart?'warn':'neutral'};}}
   if(calv){const days=Math.max(0,diffDays(dateISO(today()),calv));return {key:'postpartum',label:`Post-vêlage • J+${days}`,days,base:calv,cls:days>=state.settings.postpartumLate?'danger':days>=state.settings.postpartumStart?'warn':'neutral'};}
   return {key:'open',label:'À suivre',days:null,base:null,cls:'neutral'};
 }
@@ -359,7 +427,7 @@ function reproductiveStatus(c){
 function buildAlerts(){
   const out=[],S=state.settings,now=dateISO(today());
   for(const c of state.cows.filter(isReproEligible)){
-    const ev=events(c),b=pregnancyBasis(c),calv=lastCalving(c);
+    const ev=events(c),b=pregnancyBasis(c),calv=lastCalving(c),abort=lastAbortion(c);
     if(b?.source==='service'&&b.conception&&!b.confirmed){
       const svc=b.sourceEvent,start=dateISO(addDays(b.conception,S.heatWatchStart)),end=dateISO(addDays(b.conception,S.heatWatchEnd));
       out.push({cow:c,type:'heat_return',date:start,endDate:end,icon:'🔁',title:'Surveiller retour en chaleur',meta:`${svc.mode==='ai'?'IA':'Saillie'} du ${frDate(svc.date)}${b.uncertaintyDays?` ±${b.uncertaintyDays} j`:''} • fenêtre J+${S.heatWatchStart} à J+${S.heatWatchEnd}`});
@@ -367,12 +435,13 @@ function buildAlerts(){
     }
     if(b?.conception){
       const w=pregnancyWindow(b),centralPre=dateISO(addDays(b.conception,S.preCalving));
-      const earlyExtra=(b.uncertaintyDays||0)+(b.estive?23:0);
-      if(earlyExtra>0){const early=dateISO(addDays(centralPre,-earlyExtra)),reasons=[];if(b.uncertaintyDays)reasons.push(`date incertaine ±${b.uncertaintyDays} j`);if(b.estive)reasons.push('estive +23 j');out.push({cow:c,type:'precalving_early',date:early,icon:'⏰',title:'Surveillance vêlage anticipée',meta:`${reasons.join(' • ')} • repère standard ${frDate(centralPre)} • terme central ${frDate(w.term)}${w.uncertainty?` (fenêtre ${frDate(w.earliest)} → ${frDate(w.latest)})`:''}`})}
-      out.push({cow:c,type:'precalving',date:centralPre,icon:'🍼',title:'Vêlage sous ~10 jours',meta:`Terme théorique ${frDate(w.term)}${w.uncertainty?` • fenêtre probable ${frDate(w.earliest)} → ${frDate(w.latest)}`:''}${b.estive?' • vache en estive':''}`});
+      const categoryAdvance=calvingCategoryAdvance(c,b),earlyExtra=(b.uncertaintyDays||0)+categoryAdvance.days;
+      if(earlyExtra>0){const early=dateISO(addDays(centralPre,-earlyExtra)),reasons=[];if(b.uncertaintyDays)reasons.push(`date incertaine ±${b.uncertaintyDays} j`);if(categoryAdvance.prim)reasons.push(`primipare +${categoryAdvance.prim} j`);if(categoryAdvance.est)reasons.push(`estive +${categoryAdvance.est} j`);if(categoryAdvance.prim&&categoryAdvance.est)reasons.push(`avance retenue ${categoryAdvance.days} j, non cumulée`);out.push({cow:c,type:'precalving_early',date:early,icon:'⏰',title:'Surveillance vêlage anticipée',meta:`${reasons.join(' • ')} • repère standard ${frDate(centralPre)} • terme central ${frDate(w.term)}${w.uncertainty?` (fenêtre ${frDate(w.earliest)} → ${frDate(w.latest)})`:''}`})}
+      out.push({cow:c,type:'precalving',date:centralPre,icon:'🍼',title:'Vêlage sous ~10 jours',meta:`Terme théorique ${frDate(w.term)}${w.uncertainty?` • fenêtre probable ${frDate(w.earliest)} → ${frDate(w.latest)}`:''}${categoryAdvance.days?` • surveillance anticipée : ${calvingAdvanceReason(c,b)}`:''}`});
       out.push({cow:c,type:'term',date:w.term,icon:'⚠️',title:'Terme théorique atteint',meta:`Terme central${w.uncertainty?` • fenêtre probable ${frDate(w.earliest)} → ${frDate(w.latest)}`:''}${b.source==='scan'?' • calculé depuis l’échographie':''}`});
     }
-    if(calv){const after=ev.filter(e=>e.date>calv),restarted=after.some(e=>['heat','service'].includes(e.type));if(!restarted){const d1=dateISO(addDays(calv,S.postpartumStart)),d2=dateISO(addDays(calv,S.postpartumWarn)),d3=dateISO(addDays(calv,S.postpartumLate));out.push({cow:c,type:'post_start',date:d1,icon:'👀',title:'Commencer surveillance des chaleurs',meta:`J+${S.postpartumStart} après vêlage`});out.push({cow:c,type:'post_warn',date:d2,icon:'🔎',title:'Retour en cyclicité à surveiller',meta:`Aucune chaleur enregistrée • J+${S.postpartumWarn}`});out.push({cow:c,type:'post_late',date:d3,ongoing:true,icon:'🚩',title:'Pas de chaleur enregistrée post-vêlage',meta:`Depuis le vêlage du ${frDate(calv)} • J+${Math.max(0,diffDays(now,calv))}`});}}
+    if(abort){const afterAbort=ev.filter(e=>e.date>abort.date),restartedAbort=afterAbort.some(e=>['heat','service','pregnant','calving'].includes(e.type));if(!restartedAbort){const d1=dateISO(addDays(abort.date,S.postpartumStart)),d2=dateISO(addDays(abort.date,S.postpartumWarn)),d3=dateISO(addDays(abort.date,S.postpartumLate));out.push({cow:c,type:'abort_start',date:d1,icon:'⚠️',title:'Surveillance post-avortement',meta:`J+${S.postpartumStart} après avortement • cycle remis à zéro`});out.push({cow:c,type:'abort_warn',date:d2,icon:'🔎',title:'Retour en chaleur à surveiller après avortement',meta:`Aucune nouvelle chaleur enregistrée • J+${S.postpartumWarn}`});out.push({cow:c,type:'abort_late',date:d3,ongoing:true,icon:'🚩',title:'Pas de nouvelle chaleur enregistrée post-avortement',meta:`Depuis l’avortement du ${frDate(abort.date)} • J+${Math.max(0,diffDays(now,abort.date))}`});}}
+    if(calv){const after=ev.filter(e=>e.date>calv),restarted=after.some(e=>['heat','service','abortion'].includes(e.type));if(!restarted&&(!abort||abort.date<calv)){const d1=dateISO(addDays(calv,S.postpartumStart)),d2=dateISO(addDays(calv,S.postpartumWarn)),d3=dateISO(addDays(calv,S.postpartumLate));out.push({cow:c,type:'post_start',date:d1,icon:'👀',title:'Commencer surveillance des chaleurs',meta:`J+${S.postpartumStart} après vêlage`});out.push({cow:c,type:'post_warn',date:d2,icon:'🔎',title:'Retour en cyclicité à surveiller',meta:`Aucune chaleur enregistrée • J+${S.postpartumWarn}`});out.push({cow:c,type:'post_late',date:d3,ongoing:true,icon:'🚩',title:'Pas de chaleur enregistrée post-vêlage',meta:`Depuis le vêlage du ${frDate(calv)} • J+${Math.max(0,diffDays(now,calv))}`});}}
   }
   return out.sort((a,b)=>a.date.localeCompare(b.date)||a.cow.workNumber.localeCompare(b.cow.workNumber));
 }
@@ -388,6 +457,7 @@ function alertsBetween(start,end){return buildAlerts().filter(a=>{
 })}
 function calendarAlertGroup(a){
   if(['post_start','post_warn','post_late'].includes(a.type))return 'postpartum';
+  if(['abort_start','abort_warn','abort_late'].includes(a.type))return 'abortion';
   if(['precalving','precalving_early','term','preg_check'].includes(a.type))return 'gestation';
   return 'heat';
 }
@@ -459,7 +529,7 @@ function renderCows(){
   else list=list.filter(c=>isReproEligible(c));
   if(cowFilter==='pregnant')list=list.filter(c=>['pregnant','presumed'].includes(reproductiveStatus(c).key));
   if(cowFilter==='watch')list=list.filter(c=>['watch'].includes(reproductiveStatus(c).key)||alertsForDay(dateISO(today())).some(a=>a.cow.id===c.id));
-  if(cowFilter==='postpartum')list=list.filter(c=>reproductiveStatus(c).key==='postpartum');
+  if(cowFilter==='postpartum')list=list.filter(c=>reproductiveStatus(c).key==='postpartum');if(cowFilter==='postabortion')list=list.filter(c=>reproductiveStatus(c).key==='postabortion');
   const sortMode=$('#cowSort')?.value||'priority';
   const allAlerts=buildAlerts(), now=dateISO(today());
   const priorityFor=c=>{
@@ -505,7 +575,7 @@ function renderCows(){
 function bindCowOpen(){ $$('.open-cow').forEach(b=>b.onclick=()=>openCow(b.dataset.id)) }
 function openCow(id){
   const c=state.cows.find(x=>x.id===id); if(!c)return; const s=reproductiveStatus(c), ev=events(c).slice().reverse(); const svc=lastService(c);
-  let calc=''; const pb=pregnancyBasis(c); if(c.active!==false&&['pregnant','presumed','watch'].includes(s.key)&&pb){if(pb.conception){const w=pregnancyWindow(pb),remain=diffDays(w.term,dateISO(today())),earlyExtra=(pb.uncertaintyDays||0)+(pb.estive?23:0),standardPre=dateISO(addDays(pb.conception,state.settings.preCalving)),earlyPre=dateISO(addDays(standardPre,-earlyExtra));calc=`<div class="card"><strong>${s.key==='pregnant'?'Pleine confirmée':s.key==='presumed'?'Supposée pleine':'Gestation suivie'}${s.days!==null?` depuis ${pb.uncertaintyDays?'~':''}${s.days} jours`:''}</strong><div class="cow-sub">Terme théorique : ${frDate(w.term)}${w.uncertainty?` • fenêtre probable ${frDate(w.earliest)} → ${frDate(w.latest)}`:''} • ${remain>=0?remain+' jours restants':Math.abs(remain)+' jours après terme'}</div>${earlyExtra?`<div class="gestation-info"><strong>⏰ Surveillance anticipée : ${frDate(earlyPre)}</strong><div class="cow-sub">Repère standard : ${frDate(standardPre)} • ${esc(pregnancyReason(pb))}</div></div>`:''}${pb.source==='scan'?`<div class="gestation-info"><strong>🩺 Gestation estimée par diagnostic</strong><div class="cow-sub">Fécondation estimée autour du ${frDate(pb.conception)}${pb.uncertaintyDays?` ±${pb.uncertaintyDays} j`:''}.</div></div>`:''}</div>`}else calc='<div class="card"><strong>Pleine confirmée</strong><div class="cow-sub">Aucune date de saillie ni durée de gestation n’est renseignée : le terme ne peut pas encore être estimé.</div></div>'}
+  let calc=''; const pb=pregnancyBasis(c); if(c.active!==false&&['pregnant','presumed','watch'].includes(s.key)&&pb){if(pb.conception){const w=pregnancyWindow(pb),remain=diffDays(w.term,dateISO(today())),categoryAdvance=calvingCategoryAdvance(c,pb),earlyExtra=(pb.uncertaintyDays||0)+categoryAdvance.days,standardPre=dateISO(addDays(pb.conception,state.settings.preCalving)),earlyPre=dateISO(addDays(standardPre,-earlyExtra));calc=`<div class="card"><strong>${s.key==='pregnant'?'Pleine confirmée':s.key==='presumed'?'Supposée pleine':'Gestation suivie'}${s.days!==null?` depuis ${pb.uncertaintyDays?'~':''}${s.days} jours`:''}</strong><div class="cow-sub">Terme théorique : ${frDate(w.term)}${w.uncertainty?` • fenêtre probable ${frDate(w.earliest)} → ${frDate(w.latest)}`:''} • ${remain>=0?remain+' jours restants':Math.abs(remain)+' jours après terme'}</div>${earlyExtra?`<div class="gestation-info"><strong>⏰ Surveillance anticipée : ${frDate(earlyPre)}</strong><div class="cow-sub">Repère standard : ${frDate(standardPre)} • ${esc(pregnancyReason(pb,c))}</div></div>`:''}${pb.source==='scan'?`<div class="gestation-info"><strong>🩺 Gestation estimée par diagnostic</strong><div class="cow-sub">Fécondation estimée autour du ${frDate(pb.conception)}${pb.uncertaintyDays?` ±${pb.uncertaintyDays} j`:''}.</div></div>`:''}</div>`}else calc='<div class="card"><strong>Pleine confirmée</strong><div class="cow-sub">Aucune date de saillie ni durée de gestation n’est renseignée : le terme ne peut pas encore être estimé.</div></div>'}
   $('#cowDetail').innerHTML=`<div class="dialog-head"><div><h2>${esc(c.name||'Sans nom')} · ${esc(c.workNumber)}</h2><div class="muted">${esc(c.id)} • ${ageText(c.birthDate)}${c.source==='manual'?' • ajout manuel':''}</div></div><button class="iconbtn" id="closeCow">✕</button></div>
   <p><span class="badge ${c.active===false||!isReproEligible(c)?'neutral':s.cls}">${c.active===false?'Sortie du troupeau':!isReproEligible(c)?(isUnderAge(c)?'Hors âge':'Exclue du suivi repro'):esc(s.label)}</span></p>${isReproEligible(c)?calc:''}
   <div class="card"><strong>Repères</strong><div class="cow-sub">Dernier vêlage : ${frDate(lastCalving(c))} • Rang retrouvé : ${c.calvingCount||'—'}${c.exitDate?' • sortie '+frDate(c.exitDate):''}${c.exitReason?' • '+esc(c.exitReason):''}</div></div>
@@ -538,8 +608,8 @@ function saveCowForm(e){e.preventDefault(); const editId=$('#cowEditId').value, 
  if(c){const oldLoc=c.currentLocationId||'';Object.assign(c,data);if(oldLoc!==requestedLoc)setCowLocation(c,requestedLoc,dateISO(today()),'Modification fiche vache')} else {c={...data,active:true,source:'manual',events:[],estiveActive:false,estiveSeason:'',currentLocationId:'',currentLocationName:''};state.cows.push(c);if(requestedLoc)setCowLocation(c,requestedLoc,dateISO(today()),'Ajout manuel')}; save(); $('#cowFormDialog').close();
 }
 function exitCow(id){const c=state.cows.find(x=>x.id===id);if(!c)return; const reason=prompt('Motif de sortie (facultatif) : vendue, réforme, morte, autre…',''); if(reason===null)return; const d=prompt('Date de sortie (AAAA-MM-JJ) :',dateISO(today())); if(d===null)return; c.active=false;c.exitDate=/^\d{4}-\d{2}-\d{2}$/.test(d)?d:dateISO(today());c.exitReason=reason.trim();c.exitOrigin='manual';save();$('#cowDialog').close();}
-function eventLabel(e){return ({heat:'Chaleur observée',service:e.mode==='ai'?'Insémination artificielle':'Saillie naturelle',pregnant:'Gestation confirmée',not_pregnant:'Diagnostic négatif',calving:'Vêlage'})[e.type]||e.type}
-function eventExtraText(e){const x=[];if(e.type==='service'&&e.dateUncertaintyDays)x.push(`date ±${e.dateUncertaintyDays} j`);if(e.type==='pregnant'&&e.gestAgeMinDays){x.push(e.gestAgeMinDays===e.gestAgeMaxDays?`gestation estimée ${e.gestAgeMinDays} j`:`gestation estimée ${e.gestAgeMinDays}–${e.gestAgeMaxDays} j`)}if(e.estive)x.push('estive');return x.length?' • '+x.join(' • '):''}
+function eventLabel(e){return ({heat:'Chaleur observée',service:e.mode==='ai'?'Insémination artificielle':'Saillie naturelle',pregnant:'Gestation confirmée',not_pregnant:'Diagnostic négatif',calving:'Vêlage',abortion:'Avortement'})[e.type]||e.type}
+function eventExtraText(e){const x=[];if(e.type==='service'&&e.dateUncertaintyDays)x.push(`date ±${e.dateUncertaintyDays} j`);if(e.type==='pregnant'&&e.gestAgeMinDays){x.push(e.gestAgeMinDays===e.gestAgeMaxDays?`gestation estimée ${e.gestAgeMinDays} j`:`gestation estimée ${e.gestAgeMinDays}–${e.gestAgeMaxDays} j`)}if(e.type==='abortion'&&e.abortionStageMinDays){x.push(`stade estimé ${e.abortionStageLabel|| (e.abortionStageMinDays===e.abortionStageMaxDays?e.abortionStageMinDays+' j':e.abortionStageMinDays+'–'+e.abortionStageMaxDays+' j')}`)}if(e.estive)x.push('estive');return x.length?' • '+x.join(' • '):''}
 
 function renderBulls(){
   $('#bullList').innerHTML=state.males.length?state.males.map((b,i)=>`<div class="card bull-card-edit"><div class="bull-toggle"><div><strong>${esc(b.name||'Sans nom')} · ${esc(b.workNumber||'—')}</strong><div class="cow-sub">${esc(b.id||'')} ${b.birthDate?'• '+ageText(b.birthDate):''}</div></div><button type="button" class="switch ${b.activeBreeder?'on':''}" data-bull-toggle="${i}" aria-label="Activer comme reproducteur"></button></div><button type="button" class="ghost compact edit-bull" data-bull-edit="${i}">✏️ Modifier la fiche</button></div>`).join(''):`<div class="empty">Aucun mâle dans la base.</div>`;
@@ -561,7 +631,7 @@ function saveBullForm(e){e.preventDefault(); const raw=$('#bullEditId').value, e
 function populateNaturalBulls(){const sel=$('#naturalBull'); if(!sel)return; const a=state.males.filter(b=>b.activeBreeder); sel.innerHTML=a.length?a.map(b=>`<option value="${esc(b.name||b.workNumber)}">${esc((b.name||'')+' · '+(b.workNumber||''))}</option>`).join(''):`<option value="">Aucun taureau actif — à régler dans Taureaux</option>`}
 
 function renderSettings(){
- const defs=[['heatWatchStart','Début surveillance retour chaleur','J+ après IA/saillie'],['heatWatchEnd','Fin surveillance retour chaleur','J+ après IA/saillie'],['presumedPregnant','Supposée pleine à partir de','J+ sans retour enregistré'],['pregCheck','Rappel diagnostic de gestation','J+ après IA/saillie'],['preCalving','Alerte pré-vêlage','J+ après IA/saillie'],['term','Terme théorique','J+ après IA/saillie'],['postpartumStart','Début surveillance post-vêlage','J+ après vêlage'],['postpartumWarn','Alerte post-vêlage renforcée','J+ après vêlage'],['postpartumLate','Alerte absence de chaleur','J+ après vêlage']];
+ const defs=[['heatWatchStart','Début surveillance retour chaleur','J+ après IA/saillie'],['heatWatchEnd','Fin surveillance retour chaleur','J+ après IA/saillie'],['presumedPregnant','Supposée pleine à partir de','J+ sans retour enregistré'],['pregCheck','Rappel diagnostic de gestation','J+ après IA/saillie'],['preCalving','Alerte pré-vêlage standard','J+ après IA/saillie'],['primiparaAdvance','Avance supplémentaire primipare','jours avant l’alerte standard'],['estiveAdvance','Avance supplémentaire estive','jours avant l’alerte standard'],['term','Terme théorique','J+ après IA/saillie'],['postpartumStart','Début surveillance post-vêlage','J+ après vêlage'],['postpartumWarn','Alerte post-vêlage renforcée','J+ après vêlage'],['postpartumLate','Alerte absence de chaleur','J+ après vêlage']];
  $('#settingsForm').innerHTML=defs.map(([k,l,d])=>`<div class="setting"><label for="set-${k}">${l}</label><p>${d}</p><input id="set-${k}" type="number" min="0" value="${state.settings[k]}"></div>`).join('');
  const n=state.notifications||NOTIF_DEFAULTS;
  const minAge=Number(state.herdSettings?.minFemaleAgeMonths??HERD_DEFAULTS.minFemaleAgeMonths);
@@ -569,7 +639,7 @@ function renderSettings(){
  $('#notificationSettings').innerHTML=`
    <div class="notification-panel">
     <div class="setting-row"><div><strong>Récap quotidien</strong><p>Une seule notification regroupée pour éviter les alertes en rafale.</p></div><label class="toggleline"><input id="notif-enabled" type="checkbox" ${n.enabled?'checked':''}> Actif</label></div>
-    <div class="setting-row"><div><strong>Heure souhaitée</strong><p>Utilisée lorsque l’application est active ou reprise. Le push serveur sera nécessaire pour une heure garantie en arrière-plan.</p></div><input id="notif-time" type="time" value="${esc(n.time||'07:00')}"></div>
+    <div class="setting-row"><div><strong>Heure souhaitée</strong><p>Le serveur Supabase enverra le récap même si l’application est fermée.</p><p id="notifTimeSaveStatus" class="muted small">Heure serveur actuelle : ${esc(n.time||'07:00')}</p></div><input id="notif-time" type="time" value="${esc(n.time||'07:00')}"></div>
     <div class="notif-types">
       <label><input id="notif-heatReturn" type="checkbox" ${n.heatReturn?'checked':''}> 🔁 Retours en chaleur</label>
       <label><input id="notif-pregCheck" type="checkbox" ${n.pregCheck?'checked':''}> 🩺 Diagnostics de gestation</label>
@@ -577,12 +647,14 @@ function renderSettings(){
       <label><input id="notif-term" type="checkbox" ${n.term?'checked':''}> ⚠️ Termes atteints</label>
       <label><input id="notif-postpartum" type="checkbox" ${n.postpartum?'checked':''}> 👀 Suivi post-vêlage</label>
     </div>
-    <div class="notif-actions"><button type="button" id="enableNotifBtn" class="primary compact">🔔 Autoriser</button><button type="button" id="testNotifBtn" class="ghost compact">Envoyer un test</button></div>
+    <div class="notif-actions"><button type="button" id="enableNotifBtn" class="primary compact">🔔 Activer sur cet appareil</button><button type="button" id="testServerNotifBtn" class="ghost compact">☁️ Tester appli fermée</button><button type="button" id="disableNotifBtn" class="ghost compact">Désactiver cet appareil</button></div>
     <p id="notifStatus" class="muted small"></p>
    </div>`;
  updateNotifStatus();
  $('#enableNotifBtn').onclick=requestNotifications;
- $('#testNotifBtn').onclick=()=>sendDailyNotification(true);
+ const nt=$('#notif-time'); if(nt)nt.onchange=()=>persistNotificationTimeNow(nt.value);
+ $('#testServerNotifBtn').onclick=async()=>{try{await subscribePushDevice();await testServerPush();alert('Notification push serveur envoyée. Tu peux fermer l’application pour le prochain test.')}catch(e){alert('Test push impossible : '+e.message)}};
+ $('#disableNotifBtn').onclick=disablePushDevice;
  $('#dataInfo').textContent=`Base actuelle : ${state.cows.filter(c=>c.active!==false).length} femelles présentes • ${state.cows.filter(isReproEligible).length} suivies repro • ${state.cows.filter(c=>c.active!==false&&isUnderAge(c)&&c.reproOverride!=='include').length} hors âge • ${state.cows.filter(c=>c.active===false).length} sorties • ${state.males.length} mâles • ${state.cows.filter(c=>c.estiveActive).length} en estive • ${state.locations.length} lieu(x) • source ${state.meta?.source||'locale'}`;
  const cemail=$('#cloudUserEmail'); if(cemail)cemail.textContent=cloudUserEmail()||'Non connecté';
 }
@@ -612,13 +684,14 @@ function renderCalendar(){
 function findEventOwner(eventId){for(const c of state.cows){const ev=(c.events||[]).find(e=>e.id===eventId);if(ev)return {cow:c,event:ev}}return null}
 function openEvent(cowId,eventId=''){
  $('#eventForm').reset(); $('#eventEditId').value=eventId||''; $('#eventDialogTitle').textContent=eventId?'Modifier l’événement':'Ajouter un événement'; $('#eventType').value='service'; $('#eventDate').value=dateISO(today()); $('#eventCowId').value=''; $('#selectedCow').classList.add('hidden'); $('#eventCowMatches').innerHTML=''; $('#eventCowSearch').value=''; populateNaturalBulls();
- if(eventId){const found=findEventOwner(eventId); if(found){const ev=found.event; selectEventCow(found.cow); $('#eventType').value=ev.type||'service'; $('#eventDate').value=ev.date||dateISO(today()); $('#eventNote').value=ev.note||''; $('#eventEstive').checked=!!ev.estive; if(ev.type==='service'){ $('#serviceMode').value=ev.mode||'natural'; $('#serviceApprox').checked=Number(ev.dateUncertaintyDays)>0; $('#serviceApproxDays').value=Number(ev.dateUncertaintyDays)||7; updateServiceFields(); if(ev.mode==='ai')$('#aiBull').value=ev.bull||''; else {const sel=$('#naturalBull'); const value=ev.bull||''; if(value&&![...sel.options].some(o=>o.value===value)){const opt=document.createElement('option');opt.value=value;opt.textContent=value+' (ancien)';sel.appendChild(opt)} sel.value=value;} } if(ev.type==='pregnant'&&Number(ev.gestAgeMinDays)>0){const min=Number(ev.gestAgeMinDays),max=Number(ev.gestAgeMaxDays)||min;$('#pregEstimateUnit').value='days';if(min===max){$('#pregEstimateType').value='exact';$('#pregExactValue').value=min}else{$('#pregEstimateType').value='range';$('#pregMinValue').value=min;$('#pregMaxValue').value=max}} }}
+ if(eventId){const found=findEventOwner(eventId); if(found){const ev=found.event; selectEventCow(found.cow); $('#eventType').value=ev.type||'service'; $('#eventDate').value=ev.date||dateISO(today()); $('#eventNote').value=ev.note||''; $('#eventEstive').checked=!!ev.estive; if(ev.type==='service'){ $('#serviceMode').value=ev.mode||'natural'; $('#serviceApprox').checked=Number(ev.dateUncertaintyDays)>0; $('#serviceApproxDays').value=Number(ev.dateUncertaintyDays)||7; updateServiceFields(); if(ev.mode==='ai')$('#aiBull').value=ev.bull||''; else {const sel=$('#naturalBull'); const value=ev.bull||''; if(value&&![...sel.options].some(o=>o.value===value)){const opt=document.createElement('option');opt.value=value;opt.textContent=value+' (ancien)';sel.appendChild(opt)} sel.value=value;} } if(ev.type==='pregnant'&&Number(ev.gestAgeMinDays)>0){const min=Number(ev.gestAgeMinDays),max=Number(ev.gestAgeMaxDays)||min;$('#pregEstimateUnit').value='days';if(min===max){$('#pregEstimateType').value='exact';$('#pregExactValue').value=min}else{$('#pregEstimateType').value='range';$('#pregMinValue').value=min;$('#pregMaxValue').value=max}} if(ev.type==='abortion'&&Number(ev.abortionStageMinDays)>0){const min=Number(ev.abortionStageMinDays),max=Number(ev.abortionStageMaxDays)||min;$('#abortionStageUnit').value='days';if(min===max){$('#abortionStageType').value='exact';$('#abortionStageExact').value=min}else{$('#abortionStageType').value='range';$('#abortionStageMin').value=min;$('#abortionStageMax').value=max}} }}
  else if(cowId){selectEventCow(state.cows.find(c=>c.id===cowId))}
  updateServiceFields(); $('#eventDialog').showModal();
 }
 function selectEventCow(c){if(!c)return; $('#eventCowId').value=c.id; $('#eventCowSearch').value=''; $('#eventCowMatches').innerHTML=''; $('#selectedCow').textContent=`${c.name||'Sans nom'} · ${c.workNumber}`; $('#selectedCow').classList.remove('hidden'); if($('#eventEstive')&&!$('#eventEditId').value)$('#eventEstive').checked=!!c.estiveActive}
 function updatePregEstimateFields(){const t=$('#pregEstimateType')?.value||'none';$('#pregExactWrap')?.classList.toggle('hidden',t!=='exact');$('#pregRangeWrap')?.classList.toggle('hidden',t!=='range')}
-function updateServiceFields(){const type=$('#eventType').value,svc=type==='service',preg=type==='pregnant'; $('#serviceFields').classList.toggle('hidden',!svc); $('#pregnancyFields').classList.toggle('hidden',!preg); $('#pregnancyContextFields').classList.toggle('hidden',!(svc||preg)); const ai=$('#serviceMode').value==='ai'; $('#naturalBullWrap').classList.toggle('hidden',!svc||ai); $('#aiBullWrap').classList.toggle('hidden',!svc||!ai); $('#serviceApproxWrap').classList.toggle('hidden',!svc||!$('#serviceApprox').checked); updatePregEstimateFields()}
+function updateAbortionStageFields(){const t=$('#abortionStageType')?.value||'none';$('#abortionExactWrap')?.classList.toggle('hidden',t!=='exact');$('#abortionRangeWrap')?.classList.toggle('hidden',t!=='range')}
+function updateServiceFields(){const type=$('#eventType').value,svc=type==='service',preg=type==='pregnant',abort=type==='abortion'; $('#serviceFields').classList.toggle('hidden',!svc); $('#pregnancyFields').classList.toggle('hidden',!preg); $('#abortionFields').classList.toggle('hidden',!abort); $('#pregnancyContextFields').classList.toggle('hidden',!(svc||preg)); const ai=$('#serviceMode').value==='ai'; $('#naturalBullWrap').classList.toggle('hidden',!svc||ai); $('#aiBullWrap').classList.toggle('hidden',!svc||!ai); $('#serviceApproxWrap').classList.toggle('hidden',!svc||!$('#serviceApprox').checked); updatePregEstimateFields();updateAbortionStageFields()}
 function closeEventDialog(){if($('#eventDialog').open)$('#eventDialog').close(); $('#eventForm').reset(); $('#eventCowMatches').innerHTML=''}
 
 function addEventFromForm(e){e.preventDefault(); const c=state.cows.find(x=>x.id===$('#eventCowId').value); if(!c){alert('Choisis une vache dans la liste.');return}
@@ -626,6 +699,7 @@ function addEventFromForm(e){e.preventDefault(); const c=state.cows.find(x=>x.id
  const ev={id:editId||uid(),type,date,note:$('#eventNote').value.trim()};
  if(type==='service'){ev.mode=$('#serviceMode').value;ev.bull=ev.mode==='ai'?$('#aiBull').value.trim():$('#naturalBull').value;if($('#serviceApprox').checked)ev.dateUncertaintyDays=Math.max(1,Number($('#serviceApproxDays').value)||7);if(ev.mode==='ai'&&ev.bull&&!state.aiBulls.includes(ev.bull))state.aiBulls.push(ev.bull)}
  if(type==='pregnant'){const t=$('#pregEstimateType').value,unit=$('#pregEstimateUnit').value;if(t==='exact'){const d=daysFromEstimate($('#pregExactValue').value,unit);if(!d){alert('Indique la durée de gestation estimée.');return}ev.gestAgeMinDays=d;ev.gestAgeMaxDays=d}else if(t==='range'){let a=daysFromEstimate($('#pregMinValue').value,unit),b=daysFromEstimate($('#pregMaxValue').value,unit);if(!a||!b){alert('Indique le minimum et le maximum de la durée estimée.');return}if(a>b)[a,b]=[b,a];ev.gestAgeMinDays=a;ev.gestAgeMaxDays=b}}
+ if(type==='abortion'){const t=$('#abortionStageType').value,unit=$('#abortionStageUnit').value,uLabel=unit==='months'?'mois':'jours';if(t==='exact'){const raw=Number($('#abortionStageExact').value),d=daysFromEstimate(raw,unit);if(!d){alert('Indique le stade estimé de l’avortement.');return}ev.abortionStageMinDays=d;ev.abortionStageMaxDays=d;ev.abortionStageLabel=`${String(raw).replace('.',',')} ${uLabel}`}else if(t==='range'){const rawA=Number($('#abortionStageMin').value),rawB=Number($('#abortionStageMax').value);let a=daysFromEstimate(rawA,unit),b=daysFromEstimate(rawB,unit);if(!a||!b){alert('Indique le minimum et le maximum du stade estimé.');return}if(a>b)[a,b]=[b,a];ev.abortionStageMinDays=a;ev.abortionStageMaxDays=b;const lo=Math.min(rawA,rawB),hi=Math.max(rawA,rawB);ev.abortionStageLabel=`${String(lo).replace('.',',')}–${String(hi).replace('.',',')} ${uLabel}`}}
  if((type==='service'||type==='pregnant')&&$('#eventEstive').checked)ev.estive=true;
  if(editId){const found=findEventOwner(editId);if(found){const oldWasCalving=found.event.type==='calving',newIsCalving=type==='calving';found.cow.events=(found.cow.events||[]).filter(x=>x.id!==editId);if(oldWasCalving&&!newIsCalving)found.cow.calvingCount=Math.max(0,(found.cow.calvingCount||0)-1);if(found.cow!==c&&oldWasCalving)found.cow.calvingCount=Math.max(0,(found.cow.calvingCount||0)-1);if(newIsCalving&&(!oldWasCalving||found.cow!==c))c.calvingCount=(c.calvingCount||0)+1;}}
  else if(type==='calving')c.calvingCount=(c.calvingCount||0)+1;
@@ -661,7 +735,7 @@ function notificationTypeEnabled(a){
  if(a.type==='preg_check')return n.pregCheck;
  if(a.type==='precalving'||a.type==='precalving_early')return n.precalving;
  if(a.type==='term')return n.term;
- if(['post_start','post_warn','post_late'].includes(a.type))return n.postpartum;
+ if(['post_start','post_warn','post_late','abort_start','abort_warn','abort_late'].includes(a.type))return n.postpartum;
  return true;
 }
 function notificationAlerts(day=dateISO(today())){return alertsForDay(day).filter(notificationTypeEnabled)}
@@ -681,14 +755,15 @@ async function showNotification(title,body,tag='repro-bovine-daily'){
 }
 function updateNotifStatus(){
  const el=$('#notifStatus'); if(!el)return;
- if(!('Notification'in window)){el.textContent='Notifications non prises en charge par ce navigateur.';return}
- const p=Notification.permission; el.textContent=p==='granted'?'✅ Notifications autorisées sur cet appareil.':p==='denied'?'⛔ Notifications refusées dans les réglages du navigateur/appareil.':'🔔 Autorisation non encore accordée.';
+ if(!('Notification'in window)||!('PushManager'in window)){el.textContent='Notifications push non disponibles ici. Sur iPhone, ajoute l’app à l’écran d’accueil.';return}
+ const p=Notification.permission; el.textContent=p==='granted'?'✅ Notifications autorisées. Appuie sur « Activer sur cet appareil » pour vérifier l’abonnement push.':p==='denied'?'⛔ Notifications refusées dans les réglages du navigateur/appareil.':'🔔 Autorisation non encore accordée.';
 }
 async function requestNotifications(){
- if(!('Notification'in window)){alert('Les notifications ne sont pas disponibles dans ce navigateur. Les alertes restent visibles dans l’application.');return}
- const p=await Notification.requestPermission();
- if(p==='granted'){state.notifications.enabled=true;save(); await showNotification('Repro Bovine','Notifications activées. Les alertes du jour seront regroupées dans un récap.','repro-bovine-setup')}
- else updateNotifStatus();
+ try{
+   await subscribePushDevice();state.notifications.enabled=true;save();await upsertCloudSettings();updateNotifStatus();
+   await showNotification('Repro Bovine','Notifications push activées sur cet appareil.','repro-bovine-setup');
+   alert('Notifications activées sur cet appareil. Le serveur pourra maintenant envoyer les alertes même appli fermée.');
+ }catch(e){alert('Activation impossible : '+e.message);updateNotifStatus()}
 }
 async function sendDailyNotification(force=false){
  const prefs=state.notifications||NOTIF_DEFAULTS;
@@ -730,12 +805,12 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('.bottomnav button').forEach(b=>b.onclick=()=>switchView(b.dataset.view)); $('#quickAddBtn').onclick=()=>openEvent();
  $('#cowSearch').oninput=renderCows; $('#addCowBtn').onclick=()=>openCowForm(); $('#cowForm').onsubmit=saveCowForm; $$('[data-cow-filter]').forEach(b=>b.onclick=()=>{$$('[data-cow-filter]').forEach(x=>x.classList.remove('active'));b.classList.add('active');cowFilter=b.dataset.cowFilter;renderCows()});
  $('#eventCowSearch').oninput=()=>{const q=norm($('#eventCowSearch').value); if(q.length<1){$('#eventCowMatches').innerHTML='';return} const list=state.cows.filter(c=>isReproEligible(c)&&(norm(c.name).includes(q)||norm(c.workNumber).includes(q))).slice(0,8); $('#eventCowMatches').innerHTML=list.map(c=>`<button type="button" class="match" data-pick="${esc(c.id)}"><strong>${esc(c.name||'Sans nom')} · ${esc(c.workNumber)}</strong><div class="cow-sub">${ageText(c.birthDate)}</div></button>`).join(''); $$('[data-pick]').forEach(b=>b.onclick=()=>selectEventCow(state.cows.find(c=>c.id===b.dataset.pick)))};
- $('#eventType').onchange=updateServiceFields; $('#serviceMode').onchange=updateServiceFields; $('#serviceApprox').onchange=updateServiceFields; $('#pregEstimateType').onchange=updatePregEstimateFields; $('#eventForm').onsubmit=addEventFromForm; $('#cancelEventTop').onclick=closeEventDialog; $('#cancelEventBottom').onclick=closeEventDialog;
+ $('#eventType').onchange=updateServiceFields; $('#serviceMode').onchange=updateServiceFields; $('#serviceApprox').onchange=updateServiceFields; $('#pregEstimateType').onchange=updatePregEstimateFields; $('#abortionStageType').onchange=updateAbortionStageFields; $('#eventForm').onsubmit=addEventFromForm; $('#cancelEventTop').onclick=closeEventDialog; $('#cancelEventBottom').onclick=closeEventDialog;
  $('#addLocationBtn').onclick=()=>openLocationForm();$('#locationForm').onsubmit=saveLocationForm;$('#closeLocationDialog').onclick=$('#cancelLocationDialog').onclick=()=>$('#locationDialog').close();$('#batchMoveBtn').onclick=()=>openBatchMove();$('#batchMoveForm').onsubmit=saveBatchMove;$('#closeBatchMove').onclick=()=>$('#batchMoveDialog').close();$('#batchCowSearch').oninput=renderBatchCowList;$('#batchSelectAll').onclick=()=>$$('#batchCowList input').forEach(x=>x.checked=true);$('#batchSelectNone').onclick=()=>$$('#batchCowList input').forEach(x=>x.checked=false);
- $('#estiveCsvInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{let loc=$('#estiveLocationSelect').value;if(!loc){const l=ensureEstiveLocation();loc=l.id}const season=Number($('#estiveSeason').value)||new Date().getFullYear();const r=importEstiveCSV(await f.text(),f.name,season,loc);const detail=r.unknown?`\n\nNon reconnus :\n${r.unrecognized.slice(0,12).map(x=>`• ${x.name||'Sans nom'} · ${x.work||'?'} · ${x.national||'?'}`).join('\n')}${r.unknown>12?`\n… et ${r.unknown-12} autre(s)`:''}`:'';alert(`Liste d’estive importée.\n\n${r.recognized} animal(aux) reconnu(s) et marqué(s) en estive\n${r.unknown} ligne(s) non reconnue(s)${detail}\n\nL’alerte vêlage estive de 23 jours s’applique automatiquement.`)}catch(err){alert('Import estive impossible : '+err.message)}e.target.value=''};
+ $('#estiveCsvInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{let loc=$('#estiveLocationSelect').value;if(!loc){const l=ensureEstiveLocation();loc=l.id}const season=Number($('#estiveSeason').value)||new Date().getFullYear();const r=importEstiveCSV(await f.text(),f.name,season,loc);const detail=r.unknown?`\n\nNon reconnus :\n${r.unrecognized.slice(0,12).map(x=>`• ${x.name||'Sans nom'} · ${x.work||'?'} · ${x.national||'?'}`).join('\n')}${r.unknown>12?`\n… et ${r.unknown-12} autre(s)`:''}`:'';alert(`Liste d’estive importée.\n\n${r.recognized} animal(aux) reconnu(s) et marqué(s) en estive\n${r.unknown} ligne(s) non reconnue(s)${detail}\n\nL’alerte vêlage estive utilise automatiquement le délai réglé dans Paramètres.`)}catch(err){alert('Import estive impossible : '+err.message)}e.target.value=''};
  $('#closeEstiveBtn').onclick=()=>{if(confirm('Clôturer l’estive en cours ? Les vaches ne seront plus marquées en estive, mais leur historique de localisation restera conservé.')){const n=closeCurrentEstive();alert(`${n} vache(s) retirée(s) du statut estive.`)}};
  $('#addBullBtn').onclick=()=>openBullForm(); $('#bullForm').onsubmit=saveBullForm; $('#cancelBullTop').onclick=()=>$('#bullDialog').close(); $('#cancelBullBottom').onclick=()=>$('#bullDialog').close();
- $('#saveSettingsBtn').onclick=()=>{Object.keys(DEFAULTS).forEach(k=>state.settings[k]=Math.max(0,Number($(`#set-${k}`).value)||0)); state.herdSettings={...HERD_DEFAULTS,...state.herdSettings,minFemaleAgeMonths:Math.max(0,Number($('#minFemaleAgeMonths')?.value)||0)}; state.notifications={...NOTIF_DEFAULTS,...state.notifications,enabled:$('#notif-enabled')?.checked??false,time:$('#notif-time')?.value||'07:00',heatReturn:$('#notif-heatReturn')?.checked??true,pregCheck:$('#notif-pregCheck')?.checked??true,precalving:$('#notif-precalving')?.checked??true,term:$('#notif-term')?.checked??true,postpartum:$('#notif-postpartum')?.checked??true}; save();alert('Réglages enregistrés. Le suivi repro a été recalculé avec le nouvel âge minimum.');}; $('#resetSettingsBtn').onclick=()=>{state.settings={...DEFAULTS};state.herdSettings={...HERD_DEFAULTS};state.notifications={...NOTIF_DEFAULTS};save()};
+ $('#saveSettingsBtn').onclick=async()=>{Object.keys(DEFAULTS).forEach(k=>state.settings[k]=Math.max(0,Number($(`#set-${k}`).value)||0)); state.herdSettings={...HERD_DEFAULTS,...state.herdSettings,minFemaleAgeMonths:Math.max(0,Number($('#minFemaleAgeMonths')?.value)||0)}; state.notifications={...NOTIF_DEFAULTS,...state.notifications,enabled:$('#notif-enabled')?.checked??false,time:$('#notif-time')?.value||'07:00',heatReturn:$('#notif-heatReturn')?.checked??true,pregCheck:$('#notif-pregCheck')?.checked??true,precalving:$('#notif-precalving')?.checked??true,term:$('#notif-term')?.checked??true,postpartum:$('#notif-postpartum')?.checked??true}; localStorage.setItem(STORE,JSON.stringify(state));try{if(cloudSession&&navigator.onLine){await upsertCloudSettings();const sh=loadCloudShadow();if(sh){sh.settings=cloudSettingsPayload();localStorage.setItem(CLOUD_SHADOW_KEY,JSON.stringify(sh))}}}catch(err){console.error('Settings cloud save',err)}renderAll();scheduleCloudSync();alert(`Réglages enregistrés. Heure du récap : ${state.notifications.time}.`);}; $('#resetSettingsBtn').onclick=()=>{state.settings={...DEFAULTS};state.herdSettings={...HERD_DEFAULTS};state.notifications={...NOTIF_DEFAULTS};save()};
  $('#csvInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const r=importHerdCSV(await f.text(),f.name);alert(`Fusion CSV terminée.\n\n${r.added} nouvelle(s) vache(s)\n${r.updated} fiche(s) reconnue(s) et mise(s) à jour\n${r.exited} sortie(s) détectée(s)\n${r.manualKept} vache(s) ajoutée(s) manuellement conservée(s)\n${r.underAge} femelle(s) hors critère d’âge\n\nLes événements repro saisis dans l’application ont été conservés.`)}catch(err){alert('Import impossible : '+err.message)}e.target.value=''};
  $('#exportBtn').onclick=exportBackup; $('#restoreInput').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const x=JSON.parse(await f.text());if(!x.cows||!x.settings)throw Error('format incorrect');state=normalizeState(x);save();alert('Sauvegarde restaurée.')}catch(err){alert('Restauration impossible : '+err.message)}e.target.value=''};
  $('#notifyBtn').onclick=requestNotifications;
@@ -747,7 +822,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  $$('.calendar-filter-chips [data-cal-filter]').forEach(b=>b.classList.toggle('active',calendarFilters[b.dataset.calFilter]!==false));
  $$('.home-filter-chips [data-home-filter]').forEach(b=>b.classList.toggle('active',homeFilters[b.dataset.homeFilter]!==false));
  renderAll(); initCloudAuth();
- // v1.6.0: service worker remains disabled while Supabase authentication is stabilized.
+ registerPushServiceWorker().catch(e=>console.warn('Service worker',e));
  maybeDailyNotification();
  setInterval(maybeDailyNotification,60000);
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')maybeDailyNotification()});
@@ -755,5 +830,4 @@ document.addEventListener('DOMContentLoaded',()=>{
  window.addEventListener('online',()=>syncCloud());
 });
 
-// v1.6.0: purge legacy PWA workers/caches once, before next auth attempt.
-if(!sessionStorage.getItem('reproV146Purge')){sessionStorage.setItem('reproV146Purge','1');clearLegacyPwaCaches();}
+if(!sessionStorage.getItem('reproV170Purge')){sessionStorage.setItem('reproV170Purge','1');clearLegacyPwaCaches();}

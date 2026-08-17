@@ -1,4 +1,7 @@
-const CACHE='repro-bovine-v1-4-4-disabled';
-self.addEventListener('install',e=>self.skipWaiting());
-self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
-// v1.4.4 intentionally does not intercept fetch requests.
+const CACHE='repro-bovine-v171';
+const ASSETS=['./','./index.html','./styles.css','./app.js','./initial-data.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).catch(()=>{}));self.skipWaiting()});
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('repro-bovine')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})()));
+self.addEventListener('fetch',event=>{const u=new URL(event.request.url);if(u.origin!==self.location.origin)return;if(event.request.method!=='GET')return;event.respondWith(fetch(event.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(event.request,copy)).catch(()=>{});return r}).catch(()=>caches.match(event.request).then(r=>r||caches.match('./index.html'))))});
+self.addEventListener('push',event=>{let data={};try{data=event.data?event.data.json():{}}catch(_){data={body:event.data?.text()||''}};const title=data.title||'Repro Bovine';const options={body:data.body||'Nouvelle alerte reproduction',icon:'./icon-192.png',badge:'./icon-192.png',tag:data.tag||'repro-bovine-push',renotify:true,data:{url:data.url||'./'},actions:data.actions||[]};event.waitUntil(self.registration.showNotification(title,options))});
+self.addEventListener('notificationclick',event=>{event.notification.close();const target=new URL(event.notification.data?.url||'./',self.location.href).href;event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(ws=>{for(const w of ws){if(w.url.startsWith(self.location.origin)){w.navigate(target).catch(()=>{});return w.focus()}}return clients.openWindow(target)}))});

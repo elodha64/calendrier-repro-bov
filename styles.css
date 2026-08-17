@@ -59,3 +59,26 @@ input[type="checkbox"],input[type="radio"]{width:auto;padding:0;margin:0;accent-
 .bottomnav{grid-template-columns:repeat(6,1fr)}
 .location-metrics{margin-top:4px}.estive-import-card{display:grid;gap:12px;margin-bottom:20px}.estive-import-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.file-button{text-align:center;cursor:pointer}.location-card{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}.location-kind{display:inline-flex;padding:4px 8px;border-radius:999px;background:#eee8ec;font-size:.76rem;font-weight:700}.location-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.location-history-row{display:grid;grid-template-columns:1fr auto;gap:8px}.batch-tools{display:flex;gap:8px;margin:10px 0}.batch-cow-list{max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:12px}.batch-cow-item{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);margin:0}.batch-cow-item:last-child{border-bottom:0}.batch-cow-item input{width:auto;margin:0}.location-pill{display:inline-flex;gap:4px;align-items:center;background:#e6f2ee;color:#315f54;border-radius:999px;padding:4px 8px;font-size:.78rem;font-weight:700}.estive-pill{background:#e8efff;color:#38548a}.cow-location-box{display:grid;gap:8px}.cow-location-actions{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.cow-location-actions label{margin:0}.cow-location-actions select{margin-top:5px}
 @media(max-width:640px){.bottomnav small{font-size:.61rem}.bottomnav button span{font-size:1.12rem}.estive-import-grid{grid-template-columns:1fr}.location-actions{justify-content:flex-start}.location-card{grid-template-columns:1fr}.cow-location-actions{grid-template-columns:1fr}.location-metrics{grid-template-columns:1fr 1fr}.location-metrics .metric:last-child{grid-column:1/-1}}
+
+/* v1.7.2 — correctif iPhone : navigation toujours au vrai bas de l'écran
+   Correctif purement visuel : aucun impact sur Supabase / Push / Cron. */
+html{min-height:100%;background:var(--bg)}
+body{min-height:100dvh;padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+.bottomnav{
+  position:fixed !important;
+  left:0 !important;
+  right:0 !important;
+  bottom:auto !important;
+  top:calc(100dvh - 72px - env(safe-area-inset-bottom,0px)) !important;
+  height:calc(72px + env(safe-area-inset-bottom,0px)) !important;
+  padding-bottom:env(safe-area-inset-bottom,0px) !important;
+  z-index:1000 !important;
+  background:rgba(255,255,255,.98) !important;
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+  transform:translateZ(0);
+  -webkit-transform:translateZ(0);
+}
+@supports not (height:100dvh){
+  .bottomnav{top:auto !important;bottom:0 !important}
+}
